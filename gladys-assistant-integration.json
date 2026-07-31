@@ -1,0 +1,106 @@
+{
+  "manifest_version": 1,
+  "type": "device",
+  "name": "Overkiz",
+  "description": {
+    "en": "Control your Overkiz devices (Somfy TaHoma, Connexoon, Cozytouch...).",
+    "fr": "Contrôlez vos appareils Overkiz (Somfy TaHoma, Connexoon, Cozytouch...)."
+  },
+  "version": "1.0.0",
+  "docker_image": "ghcr.io/cicoub13/gladys-overkiz:1.0.0",
+  "gladys_version": ">=4.84.0",
+  "cover_image": "https://raw.githubusercontent.com/cicoub13/gladys-overkiz/main/cover.png",
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "label": { "en": "Overkiz account", "fr": "Compte Overkiz" },
+      "description": {
+        "en": "Connect with the credentials of your Overkiz-based hub (Somfy TaHoma, Switch, Connexoon, Cozytouch, Rexel, Hi Kumo, Flexom). Pick the server matching your hub, then enter the email and password of your provider account.",
+        "fr": "Connectez-vous avec les identifiants de votre box Overkiz (Somfy TaHoma, Switch, Connexoon, Cozytouch, Rexel, Hi Kumo, Flexom). Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur."
+      },
+      "links": [
+        {
+          "url": "https://github.com/cicoub13/gladys-overkiz",
+          "label": { "en": "Documentation", "fr": "Documentation" }
+        }
+      ]
+    },
+    {
+      "key": "server",
+      "type": "select",
+      "label": { "en": "Server (hub type)", "fr": "Serveur (type de box)" },
+      "required": true,
+      "default": "somfy_europe",
+      "options": [
+        {
+          "value": "somfy_europe",
+          "label": {
+            "en": "Somfy Europe (TaHoma, Switch, Connexoon IO)",
+            "fr": "Somfy Europe (TaHoma, Switch, Connexoon IO)"
+          }
+        },
+        {
+          "value": "somfy_australia",
+          "label": {
+            "en": "Somfy Australia / Oceania (Connexoon RTS)",
+            "fr": "Somfy Australie / Océanie (Connexoon RTS)"
+          }
+        },
+        {
+          "value": "somfy_north_america",
+          "label": { "en": "Somfy North America", "fr": "Somfy Amérique du Nord" }
+        },
+        {
+          "value": "cozytouch",
+          "label": {
+            "en": "Atlantic Cozytouch / Thermor / Sauter",
+            "fr": "Atlantic Cozytouch / Thermor / Sauter"
+          }
+        },
+        { "value": "flexom", "label": { "en": "Bouygues Flexom", "fr": "Bouygues Flexom" } },
+        {
+          "value": "rexel",
+          "label": { "en": "Rexel Energeasy Connect", "fr": "Rexel Energeasy Connect" }
+        },
+        { "value": "hi_kumo", "label": { "en": "Hitachi Hi Kumo", "fr": "Hitachi Hi Kumo" } }
+      ]
+    },
+    {
+      "key": "username",
+      "type": "string",
+      "label": { "en": "Email / username", "fr": "Email / identifiant" },
+      "placeholder": { "en": "you@example.com", "fr": "vous@exemple.fr" },
+      "required": true
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": { "en": "Password", "fr": "Mot de passe" },
+      "required": true
+    },
+    {
+      "key": "polling_period",
+      "type": "number",
+      "label": {
+        "en": "Event polling period (s)",
+        "fr": "Période d'interrogation des événements (s)"
+      },
+      "description": {
+        "en": "How often events are fetched from the Overkiz cloud, in seconds.",
+        "fr": "Fréquence de récupération des événements depuis le cloud Overkiz, en secondes."
+      },
+      "required": false,
+      "default": 30,
+      "min": 10,
+      "max": 300
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_connection",
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "timeout_seconds": 60
+    }
+  ]
+}
