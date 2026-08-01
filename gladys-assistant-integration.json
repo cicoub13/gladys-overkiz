@@ -19,8 +19,8 @@
         "fr": "Compte Overkiz"
       },
       "description": {
-        "en": "Connect with the credentials of your Overkiz-based hub (Somfy TaHoma, Switch, Connexoon, Cozytouch, Rexel, Hi Kumo, Flexom). Pick the server matching your hub, then enter the email and password of your provider account.",
-        "fr": "Connectez-vous avec les identifiants de votre box Overkiz (Somfy TaHoma, Switch, Connexoon, Cozytouch, Rexel, Hi Kumo, Flexom). Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur."
+        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Covers, lights, switches and sensors are supported; heating and hot water devices are not mapped yet.",
+        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Les volets, lampes, interrupteurs et capteurs sont supportés ; les appareils de chauffage et d'eau chaude ne le sont pas encore."
       },
       "links": [
         {

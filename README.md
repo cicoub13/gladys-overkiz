@@ -16,14 +16,20 @@ Built on the [Gladys external integration platform](https://gladysassistant.com/
 | Electricity sensors                                                                                  | power (W), energy index (Wh)          |
 | Battery-powered devices                                                                              | battery level (%)                     |
 
-State updates are pushed to Gladys in near real time through the Overkiz event polling API. Gladys commands are translated into Overkiz executions (`setClosure`, `open`, `close`, `stop`, `on`, `off`, `setIntensity`...), picking the commands the device actually supports.
+Not mapped yet: `HeatingSystem`, `WaterHeatingSystem`, `DoorLock`, `Alarm`, `AirFlow`. Cozytouch / Thermor / Sauter / Hi Kumo hubs connect fine, but most of their devices are heating ones and will not appear in discovery.
+
+Covers follow the Home Assistant convention: `core:ClosureState` is inverted into a Gladys open percentage, while `core:DeploymentState` (awnings, pergolas) already is one and is used as-is. The `108` ("my position") and `124` ("unknown position") presets are dropped rather than published as a bogus percentage.
+
+State updates are pushed to Gladys in near real time through the Overkiz event polling API. Gladys commands are translated into Overkiz executions (`setClosure`, `setDeployment`, `open`, `close`, `stop`, `on`, `off`, `setIntensity`...), picking the commands the device actually supports.
 
 ## Project layout
 
-- `index.js` — SDK wiring: discovery, commands, state publishing, config lifecycle.
+- `index.js` — SDK wiring only.
+- `src/handlers.js` — orchestration: connection lifecycle, discovery, state publishing, command routing. Collaborators and timers are injected, so it is tested without network or SDK.
 - `src/overkiz.js` — thin wrapper around `overkiz-client` (auth, devices, executions, event polling).
 - `src/mapping.js` — Overkiz uiClass/state/command ↔ Gladys category/feature/command mapping.
-- `src/config.js` — configuration defaults and normalization.
+- `src/config.js` — configuration defaults, normalization and bounds.
+- `src/errors.js` — classifies Overkiz failures (credentials / locked / unreachable) and decides what is worth retrying.
 - `gladys-assistant-integration.json` — the integration manifest (config schema, actions).
 - `docs/en.md`, `docs/fr.md` — the user documentation displayed in the Gladys store.
 
@@ -32,9 +38,22 @@ State updates are pushed to Gladys in near real time through the Overkiz event p
 ```bash
 npm install
 npm test          # unit tests (node --test)
+npm run coverage  # same tests, with the coverage floor the CI enforces
 npm run lint      # eslint
 npm run format    # prettier
 ```
+
+The whole integration is tested without a network or an Overkiz account: `gladys`,
+the Overkiz client, the clock and the timers are all injected (see `test/helpers.js`).
+
+### The `uuid` override
+
+`package.json` pins `uuid` for `overkiz-client`. `overkiz-client` asks for `uuid@^14`,
+which is **ESM-only** while `overkiz-client` itself is CommonJS and `require()`s it.
+`uuid@11` still ships a `require` export **and** carries the fix for
+[GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq); `uuid@9`,
+the previous pin, does not. Keep the override at `^11.1.1` until `overkiz-client`
+ships an ESM build.
 
 Run against a local Gladys instance (install the integration in developer mode to get a token and selector):
 

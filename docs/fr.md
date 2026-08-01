@@ -6,10 +6,16 @@ Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma,
 
 - **Volets et ouvrants** : volets roulants, stores, screens, stores vénitiens, rideaux, pergolas, portes de garage, portails et fenêtres — ouvrir, fermer, stopper et régler la position.
 - **Lampes** : marche/arrêt et luminosité.
-- **Interrupteurs et prises** : marche/arrêt, avec capteurs de puissance et de consommation quand ils existent.
+- **Interrupteurs et prises** : marche/arrêt.
 - **Capteurs** : température, humidité, luminosité, contact (ouverture), présence (mouvement), fumée, fuite d'eau, CO2, puissance/consommation électrique et niveau de batterie.
 
 Les états sont rafraîchis en quasi temps réel via l'API d'événements Overkiz : un volet actionné depuis une télécommande physique est reflété dans Gladys en quelques secondes.
+
+## Ce qui n'est pas encore supporté
+
+- **Chauffage et eau chaude** : radiateurs, planchers chauffants, chauffe-eau et pompes à chaleur (`HeatingSystem`, `WaterHeatingSystem`) ne sont pas encore convertis en appareils Gladys. Les box **Atlantic Cozytouch**, **Thermor**, **Sauter** et **Hitachi Hi Kumo** se connectent bien, mais l'essentiel de leurs appareils n'apparaîtra pas encore dans la découverte.
+- **Serrures, alarmes et ventilation** (`DoorLock`, `Alarm`, `AirFlow`).
+- Sur les prises et modules mesurant la consommation, Overkiz publie souvent la puissance sur un **sous-appareil** distinct : il apparaît alors comme un appareil séparé dans la découverte, portant le même nom que son parent.
 
 ## Prérequis
 
