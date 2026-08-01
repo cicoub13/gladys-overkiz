@@ -12,16 +12,36 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 
 const log = createLogger({ name: 'overkiz' });
 
+function defaultCreateClient(config) {
+  // `refreshPeriod` is expressed in MINUTES by overkiz-client (it multiplies by
+  // 60 internally); 30 minutes is its own recommended floor.
+  return new OverkizClient(log, {
+    service: config.server,
+    user: config.username,
+    password: config.password,
+    pollingPeriod: config.polling_period,
+    refreshPeriod: 30,
+  });
+}
+
 export class Overkiz {
-  constructor() {
+  /**
+   * @param {{ createClient?: (config: object) => object }} [options] `createClient`
+   *   is injectable so the lifecycle can be tested without an Overkiz account.
+   */
+  constructor({ createClient = defaultCreateClient } = {}) {
+    this.createClient = createClient;
     this.client = null;
+    // Only true once the first API call succeeded: a client that failed to
+    // authenticate must never be reported as connected.
+    this.ready = false;
     this.devicesByUrl = new Map();
     this.onStates = null;
     this.onConnectionChange = null;
   }
 
   get connected() {
-    return this.client !== null;
+    return this.client !== null && this.ready;
   }
 
   /**
@@ -30,13 +50,7 @@ export class Overkiz {
    */
   async start(config) {
     this.stop();
-    const client = new OverkizClient(log, {
-      service: config.server,
-      user: config.username,
-      password: config.password,
-      pollingPeriod: config.polling_period,
-      refreshPeriod: 30,
-    });
+    const client = this.createClient(config);
     client.on('connect', () => {
       log.info('Connected to the Overkiz API');
       this.onConnectionChange?.(true);
@@ -45,9 +59,20 @@ export class Overkiz {
       log.warn('Disconnected from the Overkiz API');
       this.onConnectionChange?.(false);
     });
+    // Own the client right away so `stop()` can always tear it down, but stay
+    // "not connected" until the first call actually goes through.
     this.client = client;
 
-    await client.getDevices();
+    try {
+      await client.getDevices();
+    } catch (err) {
+      // Leave nothing running behind: authentication may have succeeded and
+      // started the polling timers before a later call failed.
+      this.stop();
+      throw err;
+    }
+
+    this.ready = true;
     const devices = this.syncDevices();
     log.info(`Fetched ${devices.length} Overkiz devices`);
     return devices;
@@ -90,6 +115,7 @@ export class Overkiz {
       device.removeAllListeners('states');
     }
     this.client = null;
+    this.ready = false;
     this.devicesByUrl = new Map();
   }
 
@@ -109,17 +135,9 @@ export class Overkiz {
   }
 
   /**
-   * Ask the hub to refresh the states of one device.
-   */
-  async refreshDeviceStates(deviceUrl) {
-    if (!this.client) {
-      throw new Error('Overkiz client is not connected');
-    }
-    await this.client.refreshDeviceStates(deviceUrl);
-  }
-
-  /**
-   * Execute a command on a device and wait for the execution to complete.
+   * Send a command to a device. Resolves as soon as the Overkiz cloud ACCEPTS
+   * the execution (it returns an execId) — not when the device has finished
+   * moving. Completion is observed later through the event poller.
    */
   async execute(deviceUrl, command, label = 'Gladys command') {
     if (!this.client) {
