@@ -7,32 +7,9 @@ import {
   buildCommand,
   buildDiscoveredDevice,
 } from '../src/mapping.js';
+import { makeExternalIds, makeOverkizDevice as makeDevice } from './helpers.js';
 
-const fakeGladys = {
-  externalIds(type, platformId) {
-    return {
-      device: `overkiz:${type}:${platformId}`,
-      feature: (key) => `overkiz:${type}:${platformId}:${key}`,
-    };
-  },
-};
-
-function makeDevice({ uiClass, widgetName = 'Widget', commands = [], states = {} }) {
-  return {
-    deviceURL: 'io://1234-5678-9012/12345678',
-    label: 'Test device',
-    controllableName: 'io:RollerShutterGenericIOComponent',
-    definition: {
-      uiClass,
-      widgetName,
-      commands: commands.map((commandName) => ({ commandName })),
-    },
-    states: Object.entries(states).map(([name, value]) => ({ name, value })),
-    get(stateName) {
-      return this.states.find((s) => s.name === stateName)?.value ?? null;
-    },
-  };
-}
+const fakeGladys = { externalIds: makeExternalIds };
 
 test('platformIdFromDeviceUrl builds a stable safe id', () => {
   assert.equal(
@@ -73,24 +50,87 @@ test('a pod is ignored', () => {
   assert.deepEqual(mapDeviceFeatures(device, ids), []);
 });
 
+const CLOSURE_POSITION = { key: 'position', stateName: 'core:ClosureState', invert: true };
+const DEPLOYMENT_POSITION = { key: 'position', stateName: 'core:DeploymentState', invert: false };
+
 test('stateToGladysValue inverts the closure into a Gladys position', () => {
-  assert.equal(stateToGladysValue('core:ClosureState', 'position', 100), 0);
-  assert.equal(stateToGladysValue('core:ClosureState', 'position', 0), 100);
-  assert.equal(stateToGladysValue('core:ClosureState', 'position', 30), 70);
+  assert.equal(stateToGladysValue(CLOSURE_POSITION, 100), 0);
+  assert.equal(stateToGladysValue(CLOSURE_POSITION, 0), 100);
+  assert.equal(stateToGladysValue(CLOSURE_POSITION, 30), 70);
+});
+
+test('stateToGladysValue does NOT invert a deployment: 100 = fully deployed = open', () => {
+  assert.equal(stateToGladysValue(DEPLOYMENT_POSITION, 100), 100);
+  assert.equal(stateToGladysValue(DEPLOYMENT_POSITION, 0), 0);
+  assert.equal(stateToGladysValue(DEPLOYMENT_POSITION, 70), 70);
+});
+
+test('stateToGladysValue drops the "my" and "unknown" position presets', () => {
+  // 108 would otherwise clamp to 0 and be recorded as "fully closed".
+  assert.equal(stateToGladysValue(CLOSURE_POSITION, 108), null);
+  assert.equal(stateToGladysValue(CLOSURE_POSITION, 124), null);
+  assert.equal(stateToGladysValue(DEPLOYMENT_POSITION, 108), null);
 });
 
 test('stateToGladysValue maps string states to binary values', () => {
-  assert.equal(stateToGladysValue('core:OnOffState', 'binary', 'on'), 1);
-  assert.equal(stateToGladysValue('core:OnOffState', 'binary', 'off'), 0);
-  assert.equal(stateToGladysValue('core:ContactState', 'contact', 'open'), 1);
-  assert.equal(stateToGladysValue('core:ContactState', 'contact', 'closed'), 0);
-  assert.equal(stateToGladysValue('core:OccupancyState', 'occupancy', 'personInside'), 1);
-  assert.equal(stateToGladysValue('core:OccupancyState', 'occupancy', 'noPersonInside'), 0);
+  assert.equal(stateToGladysValue({ key: 'binary' }, 'on'), 1);
+  assert.equal(stateToGladysValue({ key: 'binary' }, 'off'), 0);
+  assert.equal(stateToGladysValue({ key: 'contact' }, 'open'), 1);
+  assert.equal(stateToGladysValue({ key: 'contact' }, 'closed'), 0);
+  assert.equal(stateToGladysValue({ key: 'occupancy' }, 'personInside'), 1);
+  assert.equal(stateToGladysValue({ key: 'occupancy' }, 'noPersonInside'), 0);
+});
+
+test('stateToGladysValue returns null for values it cannot map', () => {
+  assert.equal(stateToGladysValue({ key: 'temperature' }, null), null);
+  assert.equal(stateToGladysValue({ key: 'temperature' }, undefined), null);
+  assert.equal(stateToGladysValue({ key: 'temperature' }, 'unavailable'), null);
+  assert.equal(stateToGladysValue({ key: 'temperature' }, { some: 'object' }), null);
+  assert.equal(stateToGladysValue({ key: 'temperature' }, '21.5'), 21.5);
 });
 
 test('buildCommand translates the Gladys position to an Overkiz closure', () => {
   const device = makeDevice({ uiClass: 'RollerShutter', commands: ['setClosure'] });
-  assert.deepEqual(buildCommand(device, 'position', 70), {
+  assert.deepEqual(buildCommand(device, CLOSURE_POSITION, 70), {
+    name: 'setClosure',
+    parameters: [30],
+  });
+});
+
+test('buildCommand writes a deployment without inverting it', () => {
+  const device = makeDevice({ uiClass: 'Awning', commands: ['setDeployment'] });
+  assert.deepEqual(buildCommand(device, DEPLOYMENT_POSITION, 70), {
+    name: 'setDeployment',
+    parameters: [70],
+  });
+});
+
+test('an awning reads back exactly the position it was commanded', () => {
+  // The regression this guards: commanding 70 % used to report 30 % back.
+  const device = makeDevice({
+    uiClass: 'Awning',
+    commands: ['setDeployment', 'deploy', 'undeploy', 'stop'],
+    states: { 'core:DeploymentState': 0 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entry = mapDeviceFeatures(device, ids).find((e) => e.key === 'position');
+
+  const command = buildCommand(device, entry, 70);
+  assert.deepEqual(command, { name: 'setDeployment', parameters: [70] });
+  // The hub echoes back the deployment it just applied.
+  assert.equal(stateToGladysValue(entry, command.parameters[0]), 70);
+});
+
+test('buildCommand prefers the command matching the state it reads', () => {
+  const device = makeDevice({
+    uiClass: 'Awning',
+    commands: ['setClosure', 'setDeployment'],
+  });
+  assert.deepEqual(buildCommand(device, DEPLOYMENT_POSITION, 70), {
+    name: 'setDeployment',
+    parameters: [70],
+  });
+  assert.deepEqual(buildCommand(device, CLOSURE_POSITION, 70), {
     name: 'setClosure',
     parameters: [30],
   });
@@ -98,15 +138,76 @@ test('buildCommand translates the Gladys position to an Overkiz closure', () => 
 
 test('buildCommand maps the shutter state to open/close/stop', () => {
   const device = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'stop'] });
-  assert.deepEqual(buildCommand(device, 'state', 1), { name: 'open', parameters: [] });
-  assert.deepEqual(buildCommand(device, 'state', -1), { name: 'close', parameters: [] });
-  assert.deepEqual(buildCommand(device, 'state', 0), { name: 'stop', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'state' }, 1), { name: 'open', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'state' }, -1), { name: 'close', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'state' }, 0), { name: 'stop', parameters: [] });
 });
 
 test('buildCommand maps binary values to on/off', () => {
   const device = makeDevice({ uiClass: 'OnOff', commands: ['on', 'off'] });
-  assert.deepEqual(buildCommand(device, 'binary', 1), { name: 'on', parameters: [] });
-  assert.deepEqual(buildCommand(device, 'binary', 0), { name: 'off', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'binary' }, 1), { name: 'on', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'binary' }, 0), { name: 'off', parameters: [] });
+});
+
+test('buildCommand returns null when the device supports no matching command', () => {
+  const readOnly = makeDevice({ uiClass: 'RollerShutter', commands: [] });
+  assert.equal(buildCommand(readOnly, CLOSURE_POSITION, 70), null);
+  assert.equal(buildCommand(readOnly, { key: 'state' }, 1), null);
+  assert.equal(buildCommand(readOnly, { key: 'binary' }, 1), null);
+  assert.equal(buildCommand(readOnly, { key: 'brightness' }, 50), null);
+  assert.equal(buildCommand(readOnly, { key: 'temperature' }, 20), null);
+});
+
+test('an awning maps its position to the deployment state', () => {
+  const device = makeDevice({
+    uiClass: 'Awning',
+    commands: ['deploy', 'undeploy', 'setDeployment'],
+    states: { 'core:DeploymentState': 40 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const position = mapDeviceFeatures(device, ids).find((e) => e.key === 'position');
+  assert.equal(position.stateName, 'core:DeploymentState');
+  assert.equal(position.invert, false);
+});
+
+test('a roller shutter keeps the inverted closure convention', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    commands: ['setClosure'],
+    states: { 'core:ClosureState': 40 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const position = mapDeviceFeatures(device, ids).find((e) => e.key === 'position');
+  assert.equal(position.stateName, 'core:ClosureState');
+  assert.equal(position.invert, true);
+});
+
+test('feature names are readable and do not repeat the device label', () => {
+  // Gladys shows features under their device: prefixing produced names like
+  // "Test device co2" — untranslated, technical and unbounded in length.
+  const device = makeDevice({
+    uiClass: 'OnOff',
+    label: 'A very long device label that would blow past any name limit',
+    commands: ['on', 'off'],
+    states: { 'core:OnOffState': 'on', 'core:ElectricPowerConsumptionState': 120 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const names = mapDeviceFeatures(device, ids).map((e) => e.gladysFeature.name);
+
+  assert.deepEqual(names, ['On/Off', 'Power']);
+  for (const name of names) {
+    assert.ok(!name.includes(device.label), 'the device label is not repeated');
+    assert.ok(name.length <= 60);
+  }
+});
+
+test('the write-only shutter state declares no feedback', () => {
+  const device = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'stop'] });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const state = mapDeviceFeatures(device, ids).find((e) => e.key === 'state');
+
+  assert.equal(state.stateName, null);
+  assert.equal(state.gladysFeature.has_feedback, false, 'nothing will ever echo back');
 });
 
 test('buildDiscoveredDevice returns null for unsupported devices', () => {

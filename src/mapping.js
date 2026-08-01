@@ -17,8 +17,6 @@ export const STATES = {
   CLOSURE: 'core:ClosureState',
   DEPLOYMENT: 'core:DeploymentState',
   PEDESTRIAN_POSITION: 'core:PedestrianPositionState',
-  OPEN_CLOSED: 'core:OpenClosedState',
-  OPEN_CLOSED_PEDESTRIAN: 'core:OpenClosedPedestrianState',
   ON_OFF: 'core:OnOffState',
   LIGHT_INTENSITY: 'core:LightIntensityState',
   TEMPERATURE: 'core:TemperatureState',
@@ -28,15 +26,10 @@ export const STATES = {
   OCCUPANCY: 'core:OccupancyState',
   SMOKE: 'core:SmokeState',
   WATER_DETECTION: 'core:WaterDetectionState',
-  GAS_DETECTION: 'core:GasDetectionState',
   CO2_CONCENTRATION: 'core:CO2ConcentrationState',
   ELECTRIC_POWER_CONSUMPTION: 'core:ElectricPowerConsumptionState',
   ELECTRIC_ENERGY_CONSUMPTION: 'core:ElectricEnergyConsumptionState',
-  BATTERY: 'core:BatteryState',
   BATTERY_LEVEL: 'core:BatteryLevelState',
-  RSSI_LEVEL: 'core:RSSILevelState',
-  TARGET_TEMPERATURE: 'core:TargetTemperatureState',
-  SLATS_ORIENTATION: 'core:SlatsOrientationState',
 };
 
 // Overkiz uiClass values considered as covers (see HA OVERKIZ_DEVICE_TO_PLATFORM)
@@ -59,6 +52,29 @@ const COVER_UI_CLASSES = new Set([
 
 const IGNORED_UI_CLASSES = new Set(['ProtocolGateway', 'Pod']);
 
+// Gladys always expects an OPEN percentage (100 = fully open). Overkiz reports
+// either a closure (100 = fully closed, must be inverted) or a deployment
+// (100 = fully deployed, i.e. already an open percentage). Awnings and pergolas
+// are deployment-driven, everything else is closure-driven — this mirrors the
+// `invert_position` flag of the Home Assistant overkiz component.
+const DEPLOYMENT_UI_CLASSES = new Set(['Awning', 'Pergola']);
+
+const CLOSURE_POSITION_SOURCES = [
+  { stateName: STATES.CLOSURE, invert: true },
+  { stateName: STATES.DEPLOYMENT, invert: false },
+  { stateName: STATES.PEDESTRIAN_POSITION, invert: true },
+];
+const DEPLOYMENT_POSITION_SOURCES = [
+  { stateName: STATES.DEPLOYMENT, invert: false },
+  { stateName: STATES.CLOSURE, invert: true },
+];
+
+// Preset values some devices report instead of a real position. Publishing them
+// as a percentage would record a wildly wrong state (108 would clamp to
+// "fully closed"), so they are dropped.
+const POSITION_MY = 108;
+const POSITION_UNKNOWN = 124;
+
 /**
  * Build a stable, [a-z0-9-] safe platform id from an Overkiz deviceURL
  * (e.g. `io://1234-5678-9012/12345678` -> `io-1234-5678-9012-12345678`).
@@ -70,10 +86,31 @@ export function platformIdFromDeviceUrl(deviceUrl) {
     .replace(/^-+|-+$/g, '');
 }
 
+// Human-readable feature names. Gladys already displays a feature under its
+// device, so the device label must NOT be repeated here (it produced names like
+// "Living room co2", untranslated and unbounded in length).
+const FEATURE_NAMES = {
+  position: 'Position',
+  state: 'State',
+  binary: 'On/Off',
+  brightness: 'Brightness',
+  temperature: 'Temperature',
+  humidity: 'Humidity',
+  luminance: 'Luminance',
+  contact: 'Opening',
+  occupancy: 'Motion',
+  smoke: 'Smoke',
+  water: 'Water leak',
+  co2: 'CO2',
+  power: 'Power',
+  energy: 'Energy',
+  battery: 'Battery',
+};
+
 function feature(ids, key, overrides) {
   return {
     external_id: ids.feature(key),
-    name: key,
+    name: FEATURE_NAMES[key] ?? key,
     read_only: true,
     has_feedback: true,
     keep_history: true,
@@ -100,17 +137,18 @@ export function mapDeviceFeatures(device, ids) {
 
   // --- Covers -----------------------------------------------------------------
   if (COVER_UI_CLASSES.has(uiClass)) {
-    const positionState = [STATES.CLOSURE, STATES.DEPLOYMENT, STATES.PEDESTRIAN_POSITION].find(
-      (s) => states.has(s),
-    );
+    const sources = DEPLOYMENT_UI_CLASSES.has(uiClass)
+      ? DEPLOYMENT_POSITION_SOURCES
+      : CLOSURE_POSITION_SOURCES;
+    const source = sources.find((s) => states.has(s.stateName));
     const canSetPosition =
       commands.has('setClosure') || commands.has('setDeployment') || commands.has('setPosition');
-    if (positionState || canSetPosition) {
+    if (source || canSetPosition) {
       entries.push({
         key: 'position',
-        stateName: positionState ?? null,
+        stateName: source?.stateName ?? null,
+        invert: source?.invert ?? true,
         gladysFeature: feature(ids, 'position', {
-          name: `${device.label} position`,
           category: DEVICE_FEATURE_CATEGORIES.SHUTTER,
           type: DEVICE_FEATURE_TYPES.SHUTTER.POSITION,
           unit: DEVICE_FEATURE_UNITS.PERCENT,
@@ -129,13 +167,15 @@ export function mapDeviceFeatures(device, ids) {
         key: 'state',
         stateName: null,
         gladysFeature: feature(ids, 'state', {
-          name: `${device.label} state`,
           category: DEVICE_FEATURE_CATEGORIES.SHUTTER,
           type: DEVICE_FEATURE_TYPES.SHUTTER.STATE,
           min: -1,
           max: 1,
           read_only: false,
           keep_history: false,
+          // Write-only: Overkiz reports a position, never an open/close/stop
+          // state, so nothing will ever echo back here.
+          has_feedback: false,
         }),
       });
     }
@@ -149,7 +189,6 @@ export function mapDeviceFeatures(device, ids) {
         key: 'binary',
         stateName: states.has(STATES.ON_OFF) ? STATES.ON_OFF : null,
         gladysFeature: feature(ids, 'binary', {
-          name: `${device.label} on/off`,
           category: DEVICE_FEATURE_CATEGORIES.LIGHT,
           type: DEVICE_FEATURE_TYPES.LIGHT.BINARY,
           min: 0,
@@ -163,7 +202,6 @@ export function mapDeviceFeatures(device, ids) {
         key: 'brightness',
         stateName: states.has(STATES.LIGHT_INTENSITY) ? STATES.LIGHT_INTENSITY : null,
         gladysFeature: feature(ids, 'brightness', {
-          name: `${device.label} brightness`,
           category: DEVICE_FEATURE_CATEGORIES.LIGHT,
           type: DEVICE_FEATURE_TYPES.LIGHT.BRIGHTNESS,
           unit: DEVICE_FEATURE_UNITS.PERCENT,
@@ -185,7 +223,6 @@ export function mapDeviceFeatures(device, ids) {
       key: 'binary',
       stateName: states.has(STATES.ON_OFF) ? STATES.ON_OFF : null,
       gladysFeature: feature(ids, 'binary', {
-        name: `${device.label} on/off`,
         category:
           uiClass === 'Siren' ? DEVICE_FEATURE_CATEGORIES.SIREN : DEVICE_FEATURE_CATEGORIES.SWITCH,
         type:
@@ -305,7 +342,6 @@ export function mapDeviceFeatures(device, ids) {
         key: sensor.key,
         stateName: sensor.stateName,
         gladysFeature: feature(ids, sensor.key, {
-          name: `${device.label} ${sensor.key}`,
           category: sensor.category,
           type: sensor.type,
           unit: sensor.unit,
@@ -321,14 +357,20 @@ export function mapDeviceFeatures(device, ids) {
 
 /**
  * Convert a raw Overkiz state value to the numeric value expected by Gladys.
- * Returns null when the value cannot be mapped.
+ * Returns null when the value cannot be mapped (and must not be published).
+ *
+ * @param {{ key: string, invert?: boolean }} entry feature entry from `mapDeviceFeatures`
+ * @param {unknown} rawValue
  */
-export function stateToGladysValue(stateName, key, rawValue) {
+export function stateToGladysValue(entry, rawValue) {
+  const { key, invert = true } = entry;
   if (rawValue === null || rawValue === undefined) {
     return null;
   }
   if (typeof rawValue === 'string') {
     const lowered = rawValue.toLowerCase();
+    // Values of the mapped binary states only (OnOff, Contact, Occupancy,
+    // Smoke, WaterDetection).
     const binaryMap = {
       on: 1,
       off: 0,
@@ -340,9 +382,6 @@ export function stateToGladysValue(stateName, key, rawValue) {
       notdetected: 0,
       personinside: 1,
       nopersoninside: 0,
-      dead: 0,
-      available: 1,
-      pedestrian: 1,
     };
     if (lowered in binaryMap) {
       return binaryMap[lowered];
@@ -360,9 +399,11 @@ export function stateToGladysValue(stateName, key, rawValue) {
   if (typeof rawValue !== 'number') {
     return null;
   }
-  // Overkiz closure: 100 = fully closed. Gladys position: 100 = fully open.
   if (key === 'position') {
-    return Math.max(0, Math.min(100, 100 - rawValue));
+    if (rawValue === POSITION_MY || rawValue === POSITION_UNKNOWN) {
+      return null; // a preset, not a position: stay silent rather than lie
+    }
+    return Math.max(0, Math.min(100, invert ? 100 - rawValue : rawValue));
   }
   return rawValue;
 }
@@ -370,18 +411,32 @@ export function stateToGladysValue(stateName, key, rawValue) {
 /**
  * Build the Overkiz command to run for a Gladys command on a feature.
  * Returns `{ name, parameters }` or null when no command applies.
+ *
+ * @param {object} device the Overkiz device
+ * @param {{ key: string, stateName: string | null }} entry feature entry from `mapDeviceFeatures`
+ * @param {number} value the value Gladys asks for
  */
-export function buildCommand(device, key, value) {
+export function buildCommand(device, entry, value) {
   const commands = new Set((device.definition?.commands ?? []).map((c) => c.commandName));
+  const { key } = entry;
 
   if (key === 'position') {
-    // Gladys position 100 = open -> Overkiz closure 0
-    const closure = Math.max(0, Math.min(100, 100 - Number(value)));
+    const open = Math.max(0, Math.min(100, Number(value)));
+    if (!Number.isFinite(open)) {
+      return null;
+    }
+    const closure = 100 - open;
+    // Prefer the command that speaks the same language as the state we read the
+    // position from, so what we write and what we read back agree.
+    const preferDeployment = entry.stateName === STATES.DEPLOYMENT;
+    if (preferDeployment && commands.has('setDeployment')) {
+      return { name: 'setDeployment', parameters: [open] };
+    }
     if (commands.has('setClosure')) {
       return { name: 'setClosure', parameters: [closure] };
     }
     if (commands.has('setDeployment')) {
-      return { name: 'setDeployment', parameters: [Number(value)] };
+      return { name: 'setDeployment', parameters: [open] };
     }
     if (commands.has('setPosition')) {
       return { name: 'setPosition', parameters: [closure] };
