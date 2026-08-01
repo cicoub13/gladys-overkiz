@@ -1,6 +1,6 @@
 {
   "name": "gladys-overkiz",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Overkiz (Somfy TaHoma, Cozytouch...) external integration for Gladys Assistant.",
   "type": "module",
