@@ -5,19 +5,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { DEFAULT_CONFIG } from '../src/config.js';
+import { DEFAULT_CONFIG, POLLING_PERIOD_BOUNDS } from '../src/config.js';
+import { createHandlers } from '../src/handlers.js';
+import { makeFakeGladys, makeFakeOverkiz } from './helpers.js';
 
 const manifest = JSON.parse(
   await readFile(new URL('../gladys-assistant-integration.json', import.meta.url), 'utf8'),
 );
 
-// Actions registered in index.js.
-const REGISTERED_ACTIONS = ['test_connection'];
-
 test('every manifest action has a registered handler', () => {
-  const handled = new Set(REGISTERED_ACTIONS);
+  // Ask the real factory what it exposes, so the manifest and the code cannot
+  // drift apart behind a hard-coded list.
+  const { actions } = createHandlers({
+    gladys: makeFakeGladys(),
+    overkiz: makeFakeOverkiz(),
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+  });
   for (const action of manifest.actions ?? []) {
-    assert.ok(handled.has(action.key), `manifest action "${action.key}" has no handler`);
+    assert.equal(
+      typeof actions[action.key],
+      'function',
+      `manifest action "${action.key}" has no handler`,
+    );
+  }
+});
+
+test('every registered action handler is declared in the manifest', () => {
+  const { actions } = createHandlers({
+    gladys: makeFakeGladys(),
+    overkiz: makeFakeOverkiz(),
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+  });
+  const declared = new Set((manifest.actions ?? []).map((a) => a.key));
+  for (const key of Object.keys(actions)) {
+    assert.ok(declared.has(key), `handler "${key}" is not declared in the manifest`);
   }
 });
 
@@ -52,6 +73,15 @@ test('section fields are purely presentational', () => {
       assert.match(link.url, /^https:\/\//, 'section links must be https');
     }
   }
+});
+
+test('the polling period bounds match the ones the code enforces', () => {
+  // The manifest bounds are only advisory (a form can still submit anything);
+  // normalizeConfig is what actually enforces them, so the two must agree.
+  const field = manifest.config_schema.find((f) => f.key === 'polling_period');
+  assert.ok(field, 'the manifest declares a polling_period field');
+  assert.equal(field.min, POLLING_PERIOD_BOUNDS.min);
+  assert.equal(field.max, POLLING_PERIOD_BOUNDS.max);
 });
 
 test('the password field is stored as a secret', () => {

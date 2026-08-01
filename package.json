@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test"
+    "test": "node --test",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=75 --test-coverage-exclude='test/**'"
   },
   "engines": {
     "node": ">=20"
@@ -29,7 +30,7 @@
   "license": "Apache-2.0",
   "overrides": {
     "overkiz-client": {
-      "uuid": "^9.0.1"
+      "uuid": "^11.1.1"
     }
   }
 }

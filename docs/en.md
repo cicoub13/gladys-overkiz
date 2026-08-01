@@ -6,10 +6,16 @@ Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma S
 
 - **Covers**: roller shutters, awnings, screens, venetian blinds, curtains, pergolas, garage doors, gates and windows — open, close, stop and set the position.
 - **Lights**: on/off and brightness.
-- **Switches and plugs**: on/off, with power and energy consumption sensors when available.
+- **Switches and plugs**: on/off.
 - **Sensors**: temperature, humidity, luminance, contact (opening), occupancy (motion), smoke, water leak, CO2, electric power/energy and battery level.
 
 Device states are refreshed in near real time through the Overkiz event API, so a shutter moved from a physical remote is reflected in Gladys within seconds.
+
+## Not supported yet
+
+- **Heating and domestic hot water**: radiators, underfloor heating, water heaters and heat pumps (`HeatingSystem`, `WaterHeatingSystem`) are not mapped to Gladys devices yet. **Atlantic Cozytouch**, **Thermor**, **Sauter** and **Hitachi Hi Kumo** hubs do connect, but most of their devices will not show up in discovery yet.
+- **Locks, alarms and ventilation** (`DoorLock`, `Alarm`, `AirFlow`).
+- On metering plugs and modules, Overkiz often publishes the power reading on a separate **sub-device**: it then appears as its own device in discovery, carrying the same name as its parent.
 
 ## Prerequisites
 
