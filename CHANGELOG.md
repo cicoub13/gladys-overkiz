@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added
+
+- **Water heaters (`WaterHeatingSystem`) are mapped to Gladys.** Operating mode
+  (eco, manual, auto, away), boost, hot water setpoint, hot water left, heating
+  status and water temperature. Atlantic / Thermor / Sauter tanks are the family
+  this was built and tested against; other families get whatever they report,
+  without their vendor-specific commands.
+  - **Requires Gladys 4.85 or later**, which introduces the `water-heater`
+    device feature category (GladysAssistant/Gladys#2771). `gladys_version` was
+    raised accordingly — confirm the number against the release that actually
+    ships the category before publishing.
+  - These appliances present eco and absence as two independent switches rather
+    than as a selector. They are folded into the single Gladys `mode` feature,
+    which declares the values it can actually reach through `supported_options`.
+    Boost stays a feature of its own, because the appliance reports it natively
+    as a separate duration and one function must never get two controls.
+  - The water temperature and the electrical consumption are published as
+    `temperature-sensor` and `energy-sensor` features rather than as
+    water-heater types, which is what the Gladys taxonomy asks for and what
+    plugs the appliance into the energy pipeline.
+- **A "List the raw devices" action.** It writes the raw Overkiz description of
+  every device (uiClass, widget, states, commands) to the integration logs — the
+  only way to map an appliance exposed through a vendor-specific dialect. The
+  dump carries the hub serial number, and the action says so.
+- A Gladys command can now travel as an ordered list of Overkiz commands inside
+  a single action. Water heaters need it: Overkiz only reports the result of a
+  write once the matching `refreshXxx` has been sent, and switching mode means
+  leaving boost and absence behind first.
+- A Gladys feature can now be computed from SEVERAL Overkiz states at once
+  (`watchedStates` + `derive`), which is how the water heater mode reads the DHW
+  mode and the absence flag together.
+
 ### Fixed
 
 - **"Test the connection" no longer reports success after a failure.** The wrapper

@@ -135,15 +135,24 @@ export class Overkiz {
   }
 
   /**
-   * Send a command to a device. Resolves as soon as the Overkiz cloud ACCEPTS
-   * the execution (it returns an execId) — not when the device has finished
-   * moving. Completion is observed later through the event poller.
+   * Send a command — or an ordered list of them — to a device. Resolves as soon
+   * as the Overkiz cloud ACCEPTS the execution (it returns an execId) — not when
+   * the device has finished moving. Completion is observed later through the
+   * event poller.
+   *
+   * A list travels as a SINGLE action, which is what preserves its order: water
+   * heaters need `setXxx` then `refreshXxx` to report the result of a write, and
+   * a mode change needs its reset command to land first.
    */
   async execute(deviceUrl, command, label = 'Gladys command') {
     if (!this.client) {
       throw new Error('Overkiz client is not connected');
     }
-    const action = new Action(deviceUrl, [new Command(command.name, command.parameters)]);
+    const commands = Array.isArray(command) ? command : [command];
+    const action = new Action(
+      deviceUrl,
+      commands.map((c) => new Command(c.name, c.parameters)),
+    );
     const execution = new Execution(label, action);
     await this.client.execute('apply', execution);
   }

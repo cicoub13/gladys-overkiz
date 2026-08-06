@@ -34,6 +34,45 @@ export function makeOverkizDevice({
 }
 
 /**
+ * An Atlantic / Thermor domestic hot water tank as the Cozytouch cloud
+ * describes it: eco and absence are two independent switches, the boost is a
+ * remaining duration in days, and the setpoint carries its own range.
+ *
+ * `commands` and `states` REPLACE the defaults rather than merging into them,
+ * like `makeOverkizDevice` — a variant that must lack a state says so.
+ */
+export function makeWaterHeater(overrides = {}) {
+  return makeOverkizDevice({
+    deviceURL: 'io://1111-2222-3333/44444444#1',
+    label: 'Water heater',
+    uiClass: 'WaterHeatingSystem',
+    widgetName: 'DomesticHotWaterProduction',
+    controllableName: 'io:AtlanticDomesticHotWaterProductionV2_CV4E_IOComponent',
+    commands: [
+      'setDHWMode',
+      'setCurrentOperatingMode',
+      'setBoostModeDuration',
+      'setTargetTemperature',
+      'refreshTargetTemperature',
+      'refreshBoostModeDuration',
+      'refreshAwayModeDuration',
+    ],
+    states: {
+      'io:DHWModeState': 'manualEcoActive',
+      'io:AwayModeDurationState': '0',
+      'core:BoostModeDurationState': 0,
+      'core:TargetTemperatureState': 54,
+      'core:MinimalTemperatureManualModeState': 50,
+      'core:MaximalTemperatureManualModeState': 62,
+      'io:MiddleWaterTemperatureState': 48.5,
+      'core:RemainingHotWaterState': 70,
+      'core:HeatingStatusState': 'off',
+    },
+    ...overrides,
+  });
+}
+
+/**
  * Minimal stand-in for `gladys.externalIds()`, matching the SDK format.
  */
 export function makeExternalIds(type, platformId) {

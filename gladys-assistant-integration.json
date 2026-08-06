@@ -8,7 +8,7 @@
   },
   "version": "1.1.0",
   "docker_image": "ghcr.io/cicoub13/gladys-overkiz:1.1.0",
-  "gladys_version": ">=4.84.0",
+  "gladys_version": ">=4.85.0",
   "cover_image": "https://raw.githubusercontent.com/cicoub13/gladys-overkiz/main/cover.png",
   "config_schema": [
     {
@@ -19,8 +19,8 @@
         "fr": "Compte Overkiz"
       },
       "description": {
-        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Covers, lights, switches and sensors are supported; heating and hot water devices are not mapped yet.",
-        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Les volets, lampes, interrupteurs et capteurs sont supportés ; les appareils de chauffage et d'eau chaude ne le sont pas encore."
+        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Covers, lights, switches, sensors and water heaters are supported; heating devices are not mapped yet.",
+        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Les volets, lampes, interrupteurs, capteurs et chauffe-eau sont supportés ; les appareils de chauffage ne le sont pas encore."
       },
       "links": [
         {
@@ -138,6 +138,18 @@
       "label": {
         "en": "Test the connection",
         "fr": "Tester la connexion"
+      },
+      "timeout_seconds": 60
+    },
+    {
+      "key": "dump_devices",
+      "label": {
+        "en": "List the raw devices",
+        "fr": "Lister les appareils bruts"
+      },
+      "description": {
+        "en": "Writes the raw description of every Overkiz device (type, states, commands) to the integration logs, to help map a device that is not supported yet.",
+        "fr": "Écrit la description brute de chaque appareil Overkiz (type, états, commandes) dans les logs de l'intégration, pour aider à mapper un appareil non encore supporté."
       },
       "timeout_seconds": 60
     }

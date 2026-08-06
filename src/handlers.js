@@ -46,7 +46,8 @@ export function createHandlers({
 }) {
   let config = normalizeConfig();
 
-  // deviceURL -> { device external_id, entries: [{ key, stateName, invert, gladysFeature }] }
+  // deviceURL -> { device external_id, entries: [{ key, stateName, invert,
+  // watchedStates?, derive?, gladysFeature }] }
   let mappedDevices = new Map();
   // Gladys device external_id -> deviceURL, so commands resolve without a scan.
   let deviceUrlByExternalId = new Map();
@@ -135,6 +136,23 @@ export function createHandlers({
   }
 
   /**
+   * Read the Gladys value of one mapped feature from the Overkiz device.
+   *
+   * Most features read a single Overkiz state; a few (the water heater mode)
+   * are computed from several at once and carry a `derive` instead. Returns
+   * null for a write-only feature or a value that must not be published.
+   */
+  function readEntryValue(entry, device) {
+    if (entry.derive) {
+      return entry.derive(device);
+    }
+    if (!entry.stateName) {
+      return null;
+    }
+    return stateToGladysValue(entry, device.get(entry.stateName));
+  }
+
+  /**
    * Diff every mapped feature against the last published value and publish
    * what changed.
    */
@@ -146,10 +164,7 @@ export function createHandlers({
         continue;
       }
       for (const entry of mapped.entries) {
-        if (!entry.stateName) {
-          continue;
-        }
-        const value = stateToGladysValue(entry, device.get(entry.stateName));
+        const value = readEntryValue(entry, device);
         if (value !== null && lastValues.get(entry.gladysFeature.external_id) !== value) {
           states.push({
             device_feature_external_id: entry.gladysFeature.external_id,
@@ -234,14 +249,27 @@ export function createHandlers({
       return;
     }
     const updates = [];
+    const seen = new Set();
     for (const state of states) {
-      const entry = mapped.entries.find((e) => e.stateName === state.name);
-      if (!entry) {
-        continue;
-      }
-      const value = stateToGladysValue(entry, state.value);
-      if (value !== null && lastValues.get(entry.gladysFeature.external_id) !== value) {
-        updates.push({ device_feature_external_id: entry.gladysFeature.external_id, state: value });
+      // A derived feature is fed by several states, and any of them changing
+      // means recomputing it — once per batch, not once per state.
+      const matches = mapped.entries.filter(
+        (e) => e.stateName === state.name || e.watchedStates?.includes(state.name),
+      );
+      for (const entry of matches) {
+        if (seen.has(entry)) {
+          continue;
+        }
+        seen.add(entry);
+        // `overkiz-client` writes the new values into the device before it
+        // emits, so a derived entry reads fresh values back from it here.
+        const value = entry.derive ? entry.derive(device) : stateToGladysValue(entry, state.value);
+        if (value !== null && lastValues.get(entry.gladysFeature.external_id) !== value) {
+          updates.push({
+            device_feature_external_id: entry.gladysFeature.external_id,
+            state: value,
+          });
+        }
       }
     }
     if (updates.length > 0) {
@@ -290,7 +318,7 @@ export function createHandlers({
     }
     const overkizDevice = overkiz.getDevice(deviceUrl);
     const command = overkizDevice && buildCommand(overkizDevice, entry, value);
-    if (!command) {
+    if (!command || (Array.isArray(command) && command.length === 0)) {
       throw new Error(`No Overkiz command for ${feature.external_id} = ${value}`);
     }
     await overkiz.execute(deviceUrl, command, `Gladys - ${device.name ?? deviceUrl}`);
@@ -298,7 +326,7 @@ export function createHandlers({
     // Optimistic echo: the event poller only confirms the move up to a polling
     // period later, and the UI would sit on the stale value until then. The
     // real state overwrites this one as soon as it arrives.
-    if (entry.stateName) {
+    if (entry.stateName || entry.derive) {
       await publishChanges([
         { device_feature_external_id: feature.external_id, state: Number(value) },
       ]);
@@ -320,6 +348,44 @@ export function createHandlers({
     return {
       en: `Connection OK, ${result.deviceCount} supported device(s) found.`,
       fr: `Connexion OK, ${result.deviceCount} appareil(s) supporté(s) trouvé(s).`,
+    };
+  }
+
+  // --- Manifest action: dump the raw devices ---------------------------------
+  /**
+   * Log every Overkiz device exactly as the cloud describes it.
+   *
+   * Overkiz exposes heating and hot water appliances through vendor-specific
+   * dialects, and mapping one needs its real uiClass, states and commands —
+   * which nothing else in a Gladys installation shows. The dump is far too
+   * large for the message displayed under the button, so it goes to the logs
+   * and only a summary comes back.
+   */
+  async function dumpDevices() {
+    if (!overkiz.connected) {
+      return {
+        en: 'Not connected to Overkiz: test the connection first.',
+        fr: "Non connecté à Overkiz : testez d'abord la connexion.",
+      };
+    }
+    const devices = await overkiz.refreshDevices();
+    for (const device of devices) {
+      logger.info(
+        `Device dump: ${JSON.stringify({
+          deviceURL: device.deviceURL,
+          label: device.label,
+          controllableName: device.controllableName,
+          uiClass: device.definition?.uiClass,
+          widgetName: device.definition?.widgetName,
+          commands: (device.definition?.commands ?? []).map((c) => c.commandName),
+          states: (device.states ?? []).map((s) => ({ name: s.name, value: s.value })),
+        })}`,
+      );
+    }
+    logger.info(`Dumped ${devices.length} Overkiz device(s)`);
+    return {
+      en: `${devices.length} device(s) written to the integration logs. They carry your hub serial number — anonymize them before sharing.`,
+      fr: `${devices.length} appareil(s) écrits dans les logs de l'intégration. Ils contiennent le numéro de série de votre box : anonymisez-les avant de les partager.`,
     };
   }
 
@@ -380,6 +446,6 @@ export function createHandlers({
     shutdown,
     // Keyed by the action `key` declared in the manifest, so `index.js` wires
     // them generically and the manifest test can check the two never drift.
-    actions: { test_connection: testConnection },
+    actions: { test_connection: testConnection, dump_devices: dumpDevices },
   };
 }
