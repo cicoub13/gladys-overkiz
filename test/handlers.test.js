@@ -645,3 +645,70 @@ test('the dump action writes every device to the logs', async () => {
   assert.match(message.fr, /1 appareil/);
   assert.match(message.fr, /numéro de série/);
 });
+
+// --- Creating a device in Gladys ---------------------------------------------
+
+test('creating a device publishes its states, which discovery could not', async () => {
+  // The regression this guards: states published before the user creates the
+  // device are ACCEPTED by the host API and silently dropped — there is no
+  // feature to attach them to yet — but they were recorded as published, so
+  // the freshly created device stayed empty until each of its states happened
+  // to change. A water heater mode or setpoint does not change on its own.
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+  assert.ok(gladys.calls.states.flat().length > 0, 'discovery published them into the void');
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  const published = Object.fromEntries(
+    gladys.calls.states.flat().map((s) => [s.device_feature_external_id, s.state]),
+  );
+  assert.deepEqual(published, {
+    [`${WATER_HEATER_ID}:mode`]: 2,
+    [`${WATER_HEATER_ID}:boost`]: 0,
+    [`${WATER_HEATER_ID}:target_temperature`]: 54,
+    [`${WATER_HEATER_ID}:remaining_hot_water`]: 70,
+    [`${WATER_HEATER_ID}:heating`]: 0,
+    [`${WATER_HEATER_ID}:water_temperature`]: 48.5,
+  });
+});
+
+test('creating one device does not republish the others', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater, makeLight()] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  const ids = gladys.calls.states.flat().map((s) => s.device_feature_external_id);
+  assert.ok(ids.length > 0);
+  assert.ok(
+    ids.every((id) => id.startsWith(WATER_HEATER_ID)),
+    'only the created device is republished',
+  );
+});
+
+test('creating a device Overkiz does not know about is ignored', async () => {
+  const { gladys, handlers } = setup();
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: 'overkiz:overkiz:not-ours' });
+
+  assert.equal(gladys.calls.states.length, 0);
+});
+
+test('deleting a device lets a later recreation publish again', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+
+  await handlers.deviceDeleted({ external_id: WATER_HEATER_ID });
+  gladys.calls.states.length = 0;
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  assert.equal(gladys.calls.states.flat().length, 6, 'the values were not remembered as published');
+});

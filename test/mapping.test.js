@@ -10,7 +10,12 @@ import {
   WATER_HEATER_TYPES,
   WATER_HEATER_MODE,
 } from '../src/mapping.js';
-import { makeExternalIds, makeOverkizDevice as makeDevice, makeWaterHeater } from './helpers.js';
+import {
+  makeExternalIds,
+  makeOverkizDevice as makeDevice,
+  makeWaterHeater,
+  makeAtlanticModbuslinkWaterHeater,
+} from './helpers.js';
 
 const fakeGladys = { externalIds: makeExternalIds };
 
@@ -545,4 +550,98 @@ test('the setpoint bounds ignore a state reported as null', () => {
 
   assert.equal(setpoint.gladysFeature.min, 50, 'falls back rather than to 0');
   assert.equal(setpoint.gladysFeature.max, 65, 'the modbuslink variant is read too');
+});
+
+// --- A real appliance --------------------------------------------------------
+
+test('a real Atlantic LINEO maps to the six water-heater features', () => {
+  const device = makeAtlanticModbuslinkWaterHeater();
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  const read = (key) => {
+    const entry = entries.find((e) => e.key === key);
+    return entry.derive
+      ? entry.derive(device)
+      : stateToGladysValue(entry, device.get(entry.stateName));
+  };
+
+  assert.deepEqual(
+    entries.map((e) => e.key),
+    ['mode', 'boost', 'target_temperature', 'remaining_hot_water', 'heating', 'water_temperature'],
+  );
+
+  // Every candidate list has to reach past its `io:` first entry here.
+  const bySource = Object.fromEntries(entries.map((e) => [e.key, e.stateName]));
+  assert.equal(bySource.boost, 'modbuslink:DHWBoostModeState');
+  assert.equal(bySource.target_temperature, 'core:TargetDHWTemperatureState');
+  assert.equal(bySource.water_temperature, 'modbuslink:MiddleWaterTemperatureState');
+  assert.equal(bySource.remaining_hot_water, 'core:RemainingHotWaterState');
+
+  assert.equal(read('mode'), 1, 'autoMode, absence off');
+  assert.equal(read('boost'), 0);
+  assert.equal(read('target_temperature'), 55);
+  assert.equal(read('remaining_hot_water'), 42);
+  assert.equal(read('heating'), 0);
+  assert.equal(read('water_temperature'), 41.6);
+
+  const setpoint = entries.find((e) => e.key === 'target_temperature').gladysFeature;
+  assert.equal(setpoint.min, 50);
+  assert.equal(setpoint.max, 70, 'the appliance range, not the 62 default');
+
+  // It reports a V40 volume too, but a percentage is the better reading.
+  const hotWater = entries.find((e) => e.key === 'remaining_hot_water').gladysFeature;
+  assert.equal(hotWater.unit, 'percent');
+  assert.equal(hotWater.max, 100);
+
+  // No `setCurrentOperatingMode` on this appliance, yet away is reachable
+  // through `setAbsenceMode`, so it must still be offered.
+  const mode = entries.find((e) => e.key === 'mode').gladysFeature;
+  assert.deepEqual(
+    mode.supported_options.map((o) => o.value),
+    [2, 4, 1, 5],
+  );
+});
+
+test('a real Atlantic LINEO gets a refresh it actually declares', () => {
+  // The regression this guards: the refresh used to be the set command with
+  // its verb swapped, so this appliance got `refreshTargetDHWTemperature` —
+  // which it does not have — and therefore no refresh at all. The written
+  // value then only came back on the next 30-minute poll.
+  const device = makeAtlanticModbuslinkWaterHeater();
+
+  assert.deepEqual(buildCommand(device, { key: 'target_temperature' }, 58), [
+    { name: 'setTargetDHWTemperature', parameters: [58] },
+    { name: 'refreshWaterTargetTemperature', parameters: [] },
+  ]);
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 1), [
+    { name: 'setDHWMode', parameters: ['autoMode'] },
+    { name: 'refreshDHWMode', parameters: [] },
+  ]);
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 2), [
+    { name: 'setDHWMode', parameters: ['manualEcoActive'] },
+    { name: 'refreshDHWMode', parameters: [] },
+    { name: 'refreshWaterTargetTemperature', parameters: [] },
+  ]);
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 5), [
+    { name: 'setAbsenceMode', parameters: ['on'] },
+    { name: 'refreshAbsenceMode', parameters: [] },
+  ]);
+  assert.deepEqual(buildCommand(device, { key: 'boost' }, 1), [
+    { name: 'setBoostMode', parameters: ['on'] },
+    { name: 'refreshBoostMode', parameters: [] },
+  ]);
+});
+
+test('the away mode is read from the appliance absence switch', () => {
+  const device = makeAtlanticModbuslinkWaterHeater({
+    states: { 'modbuslink:DHWModeState': 'autoMode', 'modbuslink:DHWAbsenceModeState': 'on' },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const mode = mapDeviceFeatures(device, ids).find((e) => e.key === 'mode');
+
+  assert.deepEqual(mode.watchedStates, [
+    'modbuslink:DHWModeState',
+    'modbuslink:DHWAbsenceModeState',
+  ]);
+  assert.equal(mode.derive(device), 5, 'away wins over the DHW mode');
 });

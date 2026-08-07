@@ -180,6 +180,20 @@ const DHW_SET_TEMPERATURE_COMMANDS = [
   'setWaterTargetTemperature',
 ];
 
+// Overkiz only reports the result of a write once the matching `refreshXxx` has
+// run, and the refresh is NOT always the set command with its verb swapped: an
+// Atlantic modbuslink tank takes `setTargetDHWTemperature` but only offers
+// `refreshWaterTargetTemperature`. Each list is tried in order and the first
+// command the device declares wins.
+const DHW_REFRESH_MODE_COMMANDS = ['refreshDHWMode'];
+const DHW_REFRESH_ABSENCE_COMMANDS = ['refreshAwayModeDuration', 'refreshAbsenceMode'];
+const DHW_REFRESH_BOOST_COMMANDS = ['refreshBoostModeDuration', 'refreshBoostMode'];
+const DHW_REFRESH_TEMPERATURE_COMMANDS = [
+  'refreshTargetTemperature',
+  'refreshTargetDHWTemperature',
+  'refreshWaterTargetTemperature',
+];
+
 // Setpoint bounds when the appliance does not report its own range. Home
 // Assistant uses the same defaults for this family.
 const DHW_DEFAULT_MIN_TEMPERATURE = 50;
@@ -328,11 +342,16 @@ function firstNumber(stateValues, stateNames, fallback) {
 }
 
 /**
- * Append a refresh command, but only when the device declares it: Overkiz
- * rejects the WHOLE action when one of its commands is unknown to the device.
+ * Append the first refresh command the device actually declares.
+ *
+ * Only a declared command may be sent: Overkiz rejects the WHOLE action when
+ * one of its commands is unknown to the device, which would take the write
+ * down with the refresh. Appending none is the safe outcome — the state then
+ * lands on the next event poll instead of immediately.
  */
-function pushRefresh(commandList, commands, name) {
-  if (commands.has(name)) {
+function pushRefresh(commandList, commands, candidates) {
+  const name = candidates.find((candidate) => commands.has(candidate));
+  if (name) {
     commandList.push({ name, parameters: [] });
   }
 }
@@ -807,7 +826,7 @@ function buildWaterHeaterModeCommands(commands, mode) {
     } else {
       return null;
     }
-    pushRefresh(commandList, commands, 'refreshAwayModeDuration');
+    pushRefresh(commandList, commands, DHW_REFRESH_ABSENCE_COMMANDS);
     return commandList;
   }
 
@@ -822,10 +841,11 @@ function buildWaterHeaterModeCommands(commands, mode) {
     });
   }
   commandList.push({ name: 'setDHWMode', parameters: [overkizMode] });
+  pushRefresh(commandList, commands, DHW_REFRESH_MODE_COMMANDS);
   // Eco and manual each carry their own setpoint, so the one Gladys displays
   // has to be asked for again; auto leaves it alone.
   if (mode !== WATER_HEATER_MODE.AUTO) {
-    pushRefresh(commandList, commands, 'refreshTargetTemperature');
+    pushRefresh(commandList, commands, DHW_REFRESH_TEMPERATURE_COMMANDS);
   }
   return commandList;
 }
@@ -837,7 +857,7 @@ function buildWaterHeaterModeCommands(commands, mode) {
 function buildWaterHeaterBoostCommands(commands, on) {
   if (commands.has('setBoostMode')) {
     const commandList = [{ name: 'setBoostMode', parameters: [on ? 'on' : 'off'] }];
-    pushRefresh(commandList, commands, 'refreshBoostMode');
+    pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
     return commandList;
   }
 
@@ -854,7 +874,7 @@ function buildWaterHeaterBoostCommands(commands, on) {
   if (commandList.length === 0) {
     return null;
   }
-  pushRefresh(commandList, commands, 'refreshBoostModeDuration');
+  pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
   return commandList;
 }
 
@@ -893,7 +913,12 @@ export function buildCommand(device, entry, value) {
       return null;
     }
     const commandList = [{ name, parameters: [temperature] }];
-    pushRefresh(commandList, commands, `refresh${name.slice('set'.length)}`);
+    // Prefer the refresh matching the command just sent, then any the device
+    // does offer — they track the same setpoint on these appliances.
+    pushRefresh(commandList, commands, [
+      `refresh${name.slice('set'.length)}`,
+      ...DHW_REFRESH_TEMPERATURE_COMMANDS,
+    ]);
     return commandList;
   }
 

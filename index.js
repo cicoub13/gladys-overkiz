@@ -23,6 +23,11 @@ const handlers = createHandlers({ gladys, overkiz, logger });
 gladys.onScanRequest(handlers.scan);
 gladys.onSetValue(handlers.setValue);
 gladys.onConfigUpdated(handlers.configUpdated);
+// States published before the user creates a device are silently dropped by the
+// host API, so a freshly created device needs them published again.
+gladys.onDeviceCreated(handlers.deviceCreated);
+gladys.onDeviceUpdated(handlers.deviceUpdated);
+gladys.onDeviceDeleted(handlers.deviceDeleted);
 gladys.on('connected', handlers.gladysConnected);
 gladys.handleShutdown(handlers.shutdown);
 

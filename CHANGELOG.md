@@ -41,6 +41,24 @@
 
 ### Fixed
 
+- **A device created from the Discovery screen no longer stays empty.** States
+  published before the user creates the device are accepted by the host API and
+  silently dropped — it has no feature to attach them to yet — but they were
+  still recorded as published, so the deduplication skipped them afterwards. The
+  device then filled in only as each of its states happened to change, which for
+  a water heater mode, setpoint or boost can be days. `onDeviceCreated`,
+  `onDeviceUpdated` and `onDeviceDeleted` are now wired: creating or updating a
+  device forgets what it believed published and republishes that device.
+  This affected every device type, not just water heaters.
+- **Water heater writes are acknowledged again on appliances whose refresh
+  command is not named after the set command.** The refresh used to be derived
+  mechanically (`setXxx` → `refreshXxx`), so an Atlantic modbuslink tank — which
+  takes `setTargetDHWTemperature` but only offers `refreshWaterTargetTemperature`
+  — got no refresh at all, and `setDHWMode` / `setAbsenceMode` got none either.
+  The written value then only came back on the next 30-minute poll. Refreshes
+  are now picked from an ordered candidate list, still restricted to the
+  commands the device declares.
+
 - **"Test the connection" no longer reports success after a failure.** The wrapper
   marked itself connected before the first API call, so a refused password
   answered `Connection OK, 0 supported device(s) found.` while the status badge

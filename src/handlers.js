@@ -177,6 +177,47 @@ export function createHandlers({
   }
 
   /**
+   * Forget what is known to have been published for one device.
+   *
+   * States published for a device the user has NOT created yet are accepted by
+   * the host API and silently dropped — it has no feature to attach them to —
+   * but they were still recorded as published here. The device then stayed
+   * empty in Gladys until each of its states happened to change on its own,
+   * which for a water heater mode, a setpoint or a boost can be days.
+   *
+   * @returns {boolean} whether the device is one of ours and was forgotten.
+   */
+  function forgetDeviceValues(deviceExternalId) {
+    const deviceUrl = deviceUrlByExternalId.get(deviceExternalId);
+    const mapped = deviceUrl ? mappedDevices.get(deviceUrl) : null;
+    if (!mapped) {
+      return false;
+    }
+    for (const entry of mapped.entries) {
+      lastValues.delete(entry.gladysFeature.external_id);
+    }
+    return true;
+  }
+
+  /**
+   * The user created (or updated) one of the discovered devices: its features
+   * exist in Gladys now, so publish everything we know about it.
+   */
+  async function deviceCreated(device) {
+    logger.info(`onDeviceCreated <- ${device.external_id}`);
+    if (forgetDeviceValues(device.external_id)) {
+      await publishAllStates();
+    }
+  }
+
+  /** Deleting a device must not leave its values behind: recreating it later
+   * would find them already "published" and show an empty device again. */
+  async function deviceDeleted(device) {
+    logger.info(`onDeviceDeleted <- ${device.external_id}`);
+    forgetDeviceValues(device.external_id);
+  }
+
+  /**
    * Connect to Overkiz and publish what was found.
    * Never throws: the outcome is returned so callers can report it accurately.
    *
@@ -443,6 +484,11 @@ export function createHandlers({
     setValue,
     configUpdated,
     gladysConnected,
+    // An update can change which features a device carries, so it republishes
+    // exactly like a creation.
+    deviceCreated,
+    deviceUpdated: deviceCreated,
+    deviceDeleted,
     shutdown,
     // Keyed by the action `key` declared in the manifest, so `index.js` wires
     // them generically and the manifest test can check the two never drift.
