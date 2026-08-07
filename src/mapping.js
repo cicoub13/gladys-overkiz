@@ -167,8 +167,16 @@ const DHW_WATER_TEMPERATURE_STATES = [
   STATES.WATER_TEMPERATURE,
 ];
 const DHW_HEATING_STATES = [STATES.HEATING_STATUS, STATES.HEATING_STATUS_MODBUSLINK];
-const DHW_PERCENT_STATES = [STATES.REMAINING_HOT_WATER, STATES.REMAINING_HOT_WATER_MODBUSLINK];
-const DHW_VOLUME_STATES = [STATES.V40_WATER_VOLUME, STATES.V40_WATER_VOLUME_MODBUSLINK];
+// Hot water left is a VOLUME on every one of these states, never a percentage:
+// `core:RemainingHotWaterState` and `core:V40WaterVolumeEstimationState` are both
+// litres — the volume drawable at 40 °C — and Home Assistant declares them as
+// such. Reading either as a percentage produced readings like "176 %".
+const DHW_REMAINING_HOT_WATER_STATES = [
+  STATES.REMAINING_HOT_WATER,
+  STATES.REMAINING_HOT_WATER_MODBUSLINK,
+  STATES.V40_WATER_VOLUME,
+  STATES.V40_WATER_VOLUME_MODBUSLINK,
+];
 const DHW_CAPACITY_STATES = [STATES.DHW_CAPACITY, STATES.DHW_CAPACITY_MODBUSLINK];
 const DHW_MIN_TEMPERATURE_STATES = [
   STATES.MINIMAL_TEMPERATURE_MANUAL_MODE,
@@ -484,22 +492,18 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
     });
   }
 
-  // Hot water left, as a percentage of the tank when the appliance reports one,
-  // otherwise as the V40 volume it can still draw (litres usable at 40 °C).
-  const percentStateName = find(DHW_PERCENT_STATES);
-  const volumeStateName = percentStateName ? null : find(DHW_VOLUME_STATES);
-  if (percentStateName || volumeStateName) {
+  // Hot water left: the volume the appliance can still draw at 40 °C.
+  const remainingHotWaterStateName = find(DHW_REMAINING_HOT_WATER_STATES);
+  if (remainingHotWaterStateName) {
     entries.push({
       key: 'remaining_hot_water',
-      stateName: percentStateName ?? volumeStateName,
+      stateName: remainingHotWaterStateName,
       gladysFeature: feature(ids, 'remaining_hot_water', {
         category: WATER_HEATER_CATEGORY,
         type: WATER_HEATER_TYPES.REMAINING_HOT_WATER,
-        unit: percentStateName ? DEVICE_FEATURE_UNITS.PERCENT : DEVICE_FEATURE_UNITS.LITER,
+        unit: DEVICE_FEATURE_UNITS.LITER,
         min: 0,
-        max: percentStateName
-          ? 100
-          : firstNumber(stateValues, DHW_CAPACITY_STATES, DHW_DEFAULT_CAPACITY),
+        max: firstNumber(stateValues, DHW_CAPACITY_STATES, DHW_DEFAULT_CAPACITY),
       }),
     });
   }

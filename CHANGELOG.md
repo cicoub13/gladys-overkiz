@@ -41,6 +41,13 @@
 
 ### Fixed
 
+- **Hot water left is published in litres, not as a percentage.** A tester saw
+  "176 %". `core:RemainingHotWaterState` and `core:V40WaterVolumeEstimationState`
+  are both volumes — the litres drawable at 40 °C — whatever the first state
+  name suggests, and Home Assistant declares both as such. The feature now
+  carries `liter` with the tank capacity as its maximum, so 176 reads as the
+  176 litres it always was.
+
 - **The mode vocabulary now follows the appliance family.** `setDHWMode` takes
   the same three words on `io` and `modbuslink` tanks with different meanings,
   and the `io` reading was being applied to both. On a `modbuslink` tank

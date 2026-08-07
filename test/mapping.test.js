@@ -340,14 +340,17 @@ test('the setpoint takes its range from the appliance, then from the defaults', 
   assert.equal(fallback.gladysFeature.max, 62);
 });
 
-test('remaining hot water falls back to the V40 volume in litres', () => {
+test('remaining hot water is a volume in litres, never a percentage', () => {
+  // The regression this guards: a tester saw "176 %". `core:RemainingHotWaterState`
+  // is not a ratio — it is the volume drawable at 40 °C, in litres, which is
+  // how Home Assistant declares it too. 176 was 176 litres.
   const ids = fakeGladys.externalIds('overkiz', 'x');
 
-  const percent = mapDeviceFeatures(makeWaterHeater(), ids).find(
+  const reported = mapDeviceFeatures(makeWaterHeater(), ids).find(
     (e) => e.key === 'remaining_hot_water',
   );
-  assert.equal(percent.gladysFeature.unit, 'percent');
-  assert.equal(percent.gladysFeature.max, 100);
+  assert.equal(reported.stateName, 'core:RemainingHotWaterState');
+  assert.equal(reported.gladysFeature.unit, 'liter');
 
   const litres = makeWaterHeater({
     commands: [],
@@ -357,9 +360,9 @@ test('remaining hot water falls back to the V40 volume in litres', () => {
     },
   });
   const volume = mapDeviceFeatures(litres, ids).find((e) => e.key === 'remaining_hot_water');
-  assert.equal(volume.stateName, 'core:V40WaterVolumeEstimationState');
+  assert.equal(volume.stateName, 'core:V40WaterVolumeEstimationState', 'the V40 volume also fits');
   assert.equal(volume.gladysFeature.unit, 'liter');
-  assert.equal(volume.gladysFeature.max, 270, 'max carries the tank V40 capacity');
+  assert.equal(volume.gladysFeature.max, 270, 'max carries the tank capacity');
 
   const noCapacity = makeWaterHeater({
     commands: [],
@@ -593,10 +596,11 @@ test('a real Atlantic LINEO maps to the six water-heater features', () => {
   assert.equal(setpoint.min, 50);
   assert.equal(setpoint.max, 70, 'the appliance range, not the 62 default');
 
-  // It reports a V40 volume too, but a percentage is the better reading.
+  // Litres drawable at 40 °C, bounded by the tank capacity the appliance
+  // reports — not a percentage, whatever the state name suggests.
   const hotWater = entries.find((e) => e.key === 'remaining_hot_water').gladysFeature;
-  assert.equal(hotWater.unit, 'percent');
-  assert.equal(hotWater.max, 100);
+  assert.equal(hotWater.unit, 'liter');
+  assert.equal(hotWater.max, 80, 'modbuslink:DHWCapacityState');
 
   // No `setCurrentOperatingMode` on this appliance, yet away is reachable
   // through `setAbsenceMode`, so it must still be offered.
