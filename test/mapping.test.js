@@ -398,8 +398,10 @@ test('stateToGladysValue reads a boost from its remaining duration', () => {
   assert.equal(stateToGladysValue(boost, 0), 0);
   assert.equal(stateToGladysValue(boost, 'on'), 1);
   assert.equal(stateToGladysValue(boost, 'off'), 0);
-  // `prog` means scheduled, not running right now.
-  assert.equal(stateToGladysValue(boost, 'prog'), 0);
+  // `prog` is the value the appliance reports once the mode has been set
+  // through its start/end dates: it is RUNNING, not merely scheduled. Home
+  // Assistant reads `on` and `prog` alike on the boost and absence states.
+  assert.equal(stateToGladysValue(boost, 'prog'), 1);
   assert.equal(stateToGladysValue(boost, null), null, 'an absent state publishes nothing');
 });
 
@@ -573,7 +575,9 @@ test('a real Atlantic LINEO maps to the six water-heater features', () => {
   // Every candidate list has to reach past its `io:` first entry here.
   const bySource = Object.fromEntries(entries.map((e) => [e.key, e.stateName]));
   assert.equal(bySource.boost, 'modbuslink:DHWBoostModeState');
-  assert.equal(bySource.target_temperature, 'core:TargetDHWTemperatureState');
+  // It reports `core:TargetDHWTemperatureState` too, but only knows how to
+  // refresh this one — reading the other would go stale after a write.
+  assert.equal(bySource.target_temperature, 'core:WaterTargetTemperatureState');
   assert.equal(bySource.water_temperature, 'modbuslink:MiddleWaterTemperatureState');
   assert.equal(bySource.remaining_hot_water, 'core:RemainingHotWaterState');
 
@@ -613,18 +617,18 @@ test('a real Atlantic LINEO gets a refresh it actually declares', () => {
     { name: 'setTargetDHWTemperature', parameters: [58] },
     { name: 'refreshWaterTargetTemperature', parameters: [] },
   ]);
+  // Away is a mode value, not a control of its own, so every other mode has to
+  // leave it — otherwise the appliance stays away and the pick does nothing.
   assert.deepEqual(buildCommand(device, { key: 'mode' }, 1), [
+    { name: 'setAbsenceMode', parameters: ['off'] },
     { name: 'setDHWMode', parameters: ['autoMode'] },
     { name: 'refreshDHWMode', parameters: [] },
   ]);
   assert.deepEqual(buildCommand(device, { key: 'mode' }, 2), [
+    { name: 'setAbsenceMode', parameters: ['off'] },
     { name: 'setDHWMode', parameters: ['manualEcoActive'] },
     { name: 'refreshDHWMode', parameters: [] },
     { name: 'refreshWaterTargetTemperature', parameters: [] },
-  ]);
-  assert.deepEqual(buildCommand(device, { key: 'mode' }, 5), [
-    { name: 'setAbsenceMode', parameters: ['on'] },
-    { name: 'refreshAbsenceMode', parameters: [] },
   ]);
   assert.deepEqual(buildCommand(device, { key: 'boost' }, 1), [
     { name: 'setBoostMode', parameters: ['on'] },
@@ -644,4 +648,49 @@ test('the away mode is read from the appliance absence switch', () => {
     'modbuslink:DHWAbsenceModeState',
   ]);
   assert.equal(mode.derive(device), 5, 'away wins over the DHW mode');
+});
+
+test('away mode is written as a date range on a modbuslink appliance', () => {
+  // The regression this guards: `setAbsenceMode('on')` alone does nothing at
+  // all on these tanks, so picking "Away" in Gladys looked ignored. They want
+  // a start date, an end date and the value `prog` — and the state they then
+  // report is `prog`, which must read back as away, not as off.
+  const device = makeAtlanticModbuslinkWaterHeater();
+  const now = () => new Date(2026, 7, 7, 14, 30, 15);
+  const date = { month: 8, hour: 14, year: 2026, weekday: 4, day: 7, minute: 30, second: 15 };
+
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 5, now), [
+    { name: 'setDateTime', parameters: [date] },
+    { name: 'setAbsenceStartDate', parameters: [date] },
+    { name: 'setAbsenceEndDate', parameters: [{ ...date, year: 2027 }] },
+    { name: 'setAbsenceMode', parameters: ['prog'] },
+    { name: 'refreshAbsenceMode', parameters: [] },
+  ]);
+
+  const away = makeAtlanticModbuslinkWaterHeater({
+    states: { 'modbuslink:DHWModeState': 'autoMode', 'modbuslink:DHWAbsenceModeState': 'prog' },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const mode = mapDeviceFeatures(away, ids).find((e) => e.key === 'mode');
+  assert.equal(mode.derive(away), 5, '`prog` is away, not off');
+});
+
+test('an appliance without the date commands still takes a plain away flag', () => {
+  const device = makeAtlanticModbuslinkWaterHeater({
+    commands: ['setDHWMode', 'setAbsenceMode'],
+  });
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 5), [
+    { name: 'setAbsenceMode', parameters: ['on'] },
+  ]);
+});
+
+test('the heating status understands the word the appliance uses', () => {
+  // `core:HeatingStatusState` says `heating`, not `on`, on these tanks. It used
+  // to fall through as unmappable, and an unmappable value publishes nothing —
+  // so "Heating" stayed empty however long the appliance ran.
+  const heating = { key: 'heating' };
+  assert.equal(stateToGladysValue(heating, 'heating'), 1);
+  assert.equal(stateToGladysValue(heating, 'on'), 1);
+  assert.equal(stateToGladysValue(heating, 'off'), 0);
+  assert.equal(stateToGladysValue(heating, null), null, 'an absent state still says nothing');
 });

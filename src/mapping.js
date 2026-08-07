@@ -150,10 +150,15 @@ const DHW_BOOST_STATES = [
   STATES.DHW_BOOST_MODE,
   STATES.DHW_BOOST_MODE_MODBUSLINK,
 ];
+// `core:WaterTargetTemperatureState` comes before `core:TargetDHWTemperatureState`
+// on purpose: an appliance reporting both only knows how to refresh the former
+// (`refreshWaterTargetTemperature`), so reading the latter would leave the
+// setpoint stale after a write. Home Assistant reads the same two states in
+// this order for these two families.
 const DHW_TARGET_TEMPERATURE_STATES = [
   STATES.TARGET_TEMPERATURE,
-  STATES.TARGET_DHW_TEMPERATURE,
   STATES.WATER_TARGET_TEMPERATURE,
+  STATES.TARGET_DHW_TEMPERATURE,
 ];
 const DHW_WATER_TEMPERATURE_STATES = [
   STATES.MIDDLE_WATER_TEMPERATURE,
@@ -292,11 +297,14 @@ function isDhwFlagActive(rawValue) {
     return rawValue > 0;
   }
   const lowered = String(rawValue).trim().toLowerCase();
-  if (lowered === 'always' || lowered === 'on') {
+  // `prog` counts as RUNNING, not as "merely scheduled": it is the value the
+  // appliance reports once absence has been set through its start/end dates,
+  // and the Home Assistant overkiz component reads `on` and `prog` alike on
+  // both `modbuslink:DHWAbsenceModeState` and `modbuslink:DHWBoostModeState`.
+  if (lowered === 'always' || lowered === 'on' || lowered === 'prog') {
     return true;
   }
-  // `prog` means "scheduled", i.e. not running right now.
-  if (lowered === 'off' || lowered === 'prog') {
+  if (lowered === 'off') {
     return false;
   }
   const asNumber = Number(lowered);
@@ -763,6 +771,17 @@ export function stateToGladysValue(entry, rawValue) {
   if (key === 'boost') {
     return isDhwFlagActive(rawValue) ? 1 : 0;
   }
+  // `core:HeatingStatusState` says `heating` on some appliances, not `on`, and
+  // an unmapped string publishes nothing at all — which left "Heating" empty
+  // for good. Home Assistant reads the same two words and treats anything else
+  // as idle; there is no meaningful third state for "is it heating".
+  if (key === 'heating') {
+    if (typeof rawValue !== 'string') {
+      return null;
+    }
+    const lowered = rawValue.trim().toLowerCase();
+    return lowered === 'on' || lowered === 'heating' ? 1 : 0;
+  }
   if (typeof rawValue === 'string') {
     const lowered = rawValue.toLowerCase();
     // Values of the mapped binary states only (OnOff, Contact, Occupancy,
@@ -805,27 +824,86 @@ export function stateToGladysValue(entry, rawValue) {
 }
 
 /**
+ * The Overkiz date shape used by the absence commands, taken from the
+ * appliance's own `core:AbsenceStartDateState`.
+ *
+ * `weekday` follows the Python convention Home Assistant writes (Monday = 0),
+ * not JavaScript's (Sunday = 0) — the appliance appears to ignore the field,
+ * but there is no reason to send a different number than the reference does.
+ */
+function overkizDate(date, yearOffset = 0) {
+  return {
+    month: date.getMonth() + 1,
+    hour: date.getHours(),
+    year: date.getFullYear() + yearOffset,
+    weekday: (date.getDay() + 6) % 7,
+    day: date.getDate(),
+    minute: date.getMinutes(),
+    second: date.getSeconds(),
+  };
+}
+
+/**
+ * Commands that put the appliance into — or take it out of — its away mode.
+ *
+ * Two dialects. The `io` appliances carry absence as a flag of the
+ * `setCurrentOperatingMode` dictionary. The `modbuslink` ones instead expect a
+ * start date, an end date and the value `prog`: `setAbsenceMode('on')` alone
+ * does nothing at all, which is why selecting "Away" appeared to be ignored.
+ * The date sequence mirrors the Home Assistant overkiz component, except that
+ * everything travels in ONE Overkiz action here — the reference has to spread
+ * it over several executions and works around the resulting rate limiting.
+ */
+function buildWaterHeaterAwayCommands(commands, on, now) {
+  if (commands.has('setCurrentOperatingMode')) {
+    return [
+      {
+        name: 'setCurrentOperatingMode',
+        parameters: [{ relaunch: 'off', absence: on ? 'on' : 'off' }],
+      },
+    ];
+  }
+  if (!commands.has('setAbsenceMode')) {
+    return [];
+  }
+  if (!on) {
+    return [{ name: 'setAbsenceMode', parameters: ['off'] }];
+  }
+  const commandList = [];
+  const date = now();
+  // The start and end dates have to agree with the appliance's own clock, so
+  // the reference sets that clock first.
+  if (commands.has('setDateTime')) {
+    commandList.push({ name: 'setDateTime', parameters: [overkizDate(date)] });
+  }
+  if (commands.has('setAbsenceStartDate') && commands.has('setAbsenceEndDate')) {
+    commandList.push({ name: 'setAbsenceStartDate', parameters: [overkizDate(date)] });
+    // Away until further notice: a year out, cancelled by leaving the mode.
+    commandList.push({ name: 'setAbsenceEndDate', parameters: [overkizDate(date, 1)] });
+    commandList.push({ name: 'setAbsenceMode', parameters: ['prog'] });
+    return commandList;
+  }
+  // No date commands: the appliance takes a plain flag.
+  commandList.push({ name: 'setAbsenceMode', parameters: ['on'] });
+  return commandList;
+}
+
+/**
  * Commands to reach a Gladys water heater mode.
  *
- * Absence and boost are two flags of the same `setCurrentOperatingMode`
- * dictionary, so selecting a DHW mode starts by clearing both — unconditionally
- * rather than only when one of them is on, which keeps the write deterministic
- * without having to read the appliance back first.
+ * Away is a mode value here, not a control of its own, so selecting any OTHER
+ * mode has to leave it — otherwise the appliance stays away and the mode the
+ * user picked never takes effect.
  */
-function buildWaterHeaterModeCommands(commands, mode) {
+function buildWaterHeaterModeCommands(commands, mode, now) {
   const commandList = [];
 
   if (mode === WATER_HEATER_MODE.AWAY) {
-    if (commands.has('setCurrentOperatingMode')) {
-      commandList.push({
-        name: 'setCurrentOperatingMode',
-        parameters: [{ relaunch: 'off', absence: 'on' }],
-      });
-    } else if (commands.has('setAbsenceMode')) {
-      commandList.push({ name: 'setAbsenceMode', parameters: ['on'] });
-    } else {
+    const away = buildWaterHeaterAwayCommands(commands, true, now);
+    if (away.length === 0) {
       return null;
     }
+    commandList.push(...away);
     pushRefresh(commandList, commands, DHW_REFRESH_ABSENCE_COMMANDS);
     return commandList;
   }
@@ -833,6 +911,11 @@ function buildWaterHeaterModeCommands(commands, mode) {
   const overkizMode = GLADYS_MODE_TO_OVERKIZ_DHW_MODE[mode];
   if (!overkizMode || !commands.has('setDHWMode')) {
     return null;
+  }
+  if (!commands.has('setCurrentOperatingMode')) {
+    // Leave away behind; the `setCurrentOperatingMode` dialect below does it
+    // as part of its own reset.
+    commandList.push(...buildWaterHeaterAwayCommands(commands, false, now));
   }
   if (commands.has('setCurrentOperatingMode')) {
     commandList.push({
@@ -890,13 +973,15 @@ function buildWaterHeaterBoostCommands(commands, on) {
  * @param {object} device the Overkiz device
  * @param {{ key: string, stateName: string | null }} entry feature entry from `mapDeviceFeatures`
  * @param {number} value the value Gladys asks for
+ * @param {() => Date} [now] injectable clock: the away mode is written as a
+ *   start and an end date, which tests must be able to pin down
  */
-export function buildCommand(device, entry, value) {
+export function buildCommand(device, entry, value, now = () => new Date()) {
   const commands = new Set((device.definition?.commands ?? []).map((c) => c.commandName));
   const { key } = entry;
 
   if (key === 'mode') {
-    return buildWaterHeaterModeCommands(commands, Number(value));
+    return buildWaterHeaterModeCommands(commands, Number(value), now);
   }
 
   if (key === 'boost') {

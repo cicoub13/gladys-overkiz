@@ -41,6 +41,28 @@
 
 ### Fixed
 
+- **Selecting the "Away" mode no longer does nothing on Atlantic modbuslink
+  tanks.** These appliances ignore a plain `setAbsenceMode('on')`: they want a
+  start date, an end date and the value `prog`. The write now sends the same
+  sequence as the Home Assistant overkiz component — `setDateTime`,
+  `setAbsenceStartDate`, `setAbsenceEndDate` a year out, then
+  `setAbsenceMode('prog')` — in a single Overkiz action.
+- **`prog` is read as running, not as off.** It is what these appliances report
+  once absence (or a scheduled boost) is active, and it was being read as
+  inactive, so away could never appear on even once it had been set.
+- **Picking any other mode now leaves the away mode.** Away is a mode value in
+  Gladys rather than a control of its own, so selecting Eco, Manual or Auto has
+  to clear it — otherwise the appliance stayed away and the chosen mode never
+  took effect.
+- **"Heating" no longer stays empty.** `core:HeatingStatusState` says `heating`
+  on these appliances, not `on`; an unmapped value publishes nothing, so the
+  feature never received a single state.
+- **The setpoint is read from the state the appliance can refresh.** A tank
+  reporting both `core:WaterTargetTemperatureState` and
+  `core:TargetDHWTemperatureState` only offers `refreshWaterTargetTemperature`,
+  so the former is now preferred — reading the latter left the setpoint stale
+  after a write.
+
 - **A device created from the Discovery screen no longer stays empty.** States
   published before the user creates the device are accepted by the host API and
   silently dropped — it has no feature to attach them to yet — but they were
