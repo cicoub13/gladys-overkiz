@@ -208,26 +208,57 @@ const DHW_DEFAULT_CAPACITY = 300;
 // `setBoostModeDuration` counts days, and 7 is the longest these appliances take.
 const DHW_BOOST_DURATION_DAYS = 7;
 
-const OVERKIZ_DHW_MODE_TO_GLADYS = {
-  manualecoactive: WATER_HEATER_MODE.ECO,
-  manualecoinactive: WATER_HEATER_MODE.MANUAL,
-  automode: WATER_HEATER_MODE.AUTO,
-  off: WATER_HEATER_MODE.OFF,
-  stop: WATER_HEATER_MODE.OFF,
+// Overkiz reuses the same three `setDHWMode` values with DIFFERENT meanings
+// from one appliance family to the next, so the vocabulary is chosen from the
+// dialect of the state the mode is read from.
+//
+// On `io` tanks `autoMode` is the learning mode and `manualEcoActive` is eco.
+// On `modbuslink` ones `autoMode` IS the energy-saving mode — what the Atlantic
+// app shows as "Eco+" — and `manualEcoActive` is only ever reported, never
+// accepted as a write: sending it does nothing at all. There is no separate
+// "auto" to offer there, which is also what Home Assistant exposes.
+const DHW_DIALECT_IO = {
+  read: {
+    manualecoactive: WATER_HEATER_MODE.ECO,
+    manualecoinactive: WATER_HEATER_MODE.MANUAL,
+    automode: WATER_HEATER_MODE.AUTO,
+    off: WATER_HEATER_MODE.OFF,
+    stop: WATER_HEATER_MODE.OFF,
+  },
+  write: {
+    [WATER_HEATER_MODE.ECO]: 'manualEcoActive',
+    [WATER_HEATER_MODE.MANUAL]: 'manualEcoInactive',
+    [WATER_HEATER_MODE.AUTO]: 'autoMode',
+  },
+  // The modes reachable through `setDHWMode`, in the order they are offered.
+  options: [
+    { value: WATER_HEATER_MODE.ECO, label: 'Eco' },
+    { value: WATER_HEATER_MODE.MANUAL, label: 'Manual' },
+    { value: WATER_HEATER_MODE.AUTO, label: 'Auto' },
+  ],
 };
 
-const GLADYS_MODE_TO_OVERKIZ_DHW_MODE = {
-  [WATER_HEATER_MODE.ECO]: 'manualEcoActive',
-  [WATER_HEATER_MODE.MANUAL]: 'manualEcoInactive',
-  [WATER_HEATER_MODE.AUTO]: 'autoMode',
+const DHW_DIALECT_MODBUSLINK = {
+  read: {
+    automode: WATER_HEATER_MODE.ECO,
+    manualecoactive: WATER_HEATER_MODE.ECO,
+    manualecoinactive: WATER_HEATER_MODE.MANUAL,
+    off: WATER_HEATER_MODE.OFF,
+    stop: WATER_HEATER_MODE.OFF,
+  },
+  write: {
+    [WATER_HEATER_MODE.ECO]: 'autoMode',
+    [WATER_HEATER_MODE.MANUAL]: 'manualEcoInactive',
+  },
+  options: [
+    { value: WATER_HEATER_MODE.ECO, label: 'Eco' },
+    { value: WATER_HEATER_MODE.MANUAL, label: 'Manual' },
+  ],
 };
 
-// The modes reachable through `setDHWMode`, in the order they are offered.
-const DHW_WRITABLE_MODES = [
-  { value: WATER_HEATER_MODE.ECO, label: 'Eco' },
-  { value: WATER_HEATER_MODE.MANUAL, label: 'Manual' },
-  { value: WATER_HEATER_MODE.AUTO, label: 'Auto' },
-];
+function dhwDialect(stateNames) {
+  return stateNames.has(STATES.DHW_MODE_MODBUSLINK) ? DHW_DIALECT_MODBUSLINK : DHW_DIALECT_IO;
+}
 
 /**
  * Build a stable, [a-z0-9-] safe platform id from an Overkiz deviceURL
@@ -319,7 +350,7 @@ function isDhwFlagActive(rawValue) {
  * Returns null when the reported mode is unknown: staying silent beats
  * publishing a mode the appliance is not in.
  */
-function deriveWaterHeaterMode(device, { modeStateName, absenceStateName }) {
+function deriveWaterHeaterMode(device, { modeStateName, absenceStateName, dialect }) {
   if (absenceStateName && isDhwFlagActive(device.get(absenceStateName))) {
     return WATER_HEATER_MODE.AWAY;
   }
@@ -330,7 +361,7 @@ function deriveWaterHeaterMode(device, { modeStateName, absenceStateName }) {
   if (typeof rawValue !== 'string') {
     return null;
   }
-  const mode = OVERKIZ_DHW_MODE_TO_GLADYS[rawValue.trim().toLowerCase()];
+  const mode = dialect.read[rawValue.trim().toLowerCase()];
   return mode === undefined ? null : mode;
 }
 
@@ -380,12 +411,13 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
 
   const modeStateName = find(DHW_MODE_STATES);
   const absenceStateName = find(DHW_ABSENCE_STATES);
+  const dialect = dhwDialect(states);
   const canSetOperatingMode = commands.has('setCurrentOperatingMode');
   const canSetAbsence = canSetOperatingMode || commands.has('setAbsenceMode');
 
   const supportedOptions = [];
   if (commands.has('setDHWMode')) {
-    supportedOptions.push(...DHW_WRITABLE_MODES);
+    supportedOptions.push(...dialect.options);
   }
   if (canSetAbsence) {
     // Gladys calls this mode "away"; the appliance calls the same thing
@@ -398,7 +430,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       key: 'mode',
       stateName: null,
       watchedStates: [modeStateName, absenceStateName].filter(Boolean),
-      derive: (device) => deriveWaterHeaterMode(device, { modeStateName, absenceStateName }),
+      derive: (device) =>
+        deriveWaterHeaterMode(device, { modeStateName, absenceStateName, dialect }),
       gladysFeature: feature(ids, 'mode', {
         category: WATER_HEATER_CATEGORY,
         type: WATER_HEATER_TYPES.MODE,
@@ -895,7 +928,7 @@ function buildWaterHeaterAwayCommands(commands, on, now) {
  * mode has to leave it — otherwise the appliance stays away and the mode the
  * user picked never takes effect.
  */
-function buildWaterHeaterModeCommands(commands, mode, now) {
+function buildWaterHeaterModeCommands(commands, mode, now, dialect) {
   const commandList = [];
 
   if (mode === WATER_HEATER_MODE.AWAY) {
@@ -908,7 +941,7 @@ function buildWaterHeaterModeCommands(commands, mode, now) {
     return commandList;
   }
 
-  const overkizMode = GLADYS_MODE_TO_OVERKIZ_DHW_MODE[mode];
+  const overkizMode = dialect.write[mode];
   if (!overkizMode || !commands.has('setDHWMode')) {
     return null;
   }
@@ -981,7 +1014,8 @@ export function buildCommand(device, entry, value, now = () => new Date()) {
   const { key } = entry;
 
   if (key === 'mode') {
-    return buildWaterHeaterModeCommands(commands, Number(value), now);
+    const stateNames = new Set((device.states ?? []).map((s) => s.name));
+    return buildWaterHeaterModeCommands(commands, Number(value), now, dhwDialect(stateNames));
   }
 
   if (key === 'boost') {

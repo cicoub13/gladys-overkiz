@@ -581,7 +581,8 @@ test('a real Atlantic LINEO maps to the six water-heater features', () => {
   assert.equal(bySource.water_temperature, 'modbuslink:MiddleWaterTemperatureState');
   assert.equal(bySource.remaining_hot_water, 'core:RemainingHotWaterState');
 
-  assert.equal(read('mode'), 1, 'autoMode, absence off');
+  // `autoMode` is this family's energy-saving mode, not a separate "auto".
+  assert.equal(read('mode'), 2, 'autoMode reads as eco here, absence off');
   assert.equal(read('boost'), 0);
   assert.equal(read('target_temperature'), 55);
   assert.equal(read('remaining_hot_water'), 42);
@@ -600,9 +601,11 @@ test('a real Atlantic LINEO maps to the six water-heater features', () => {
   // No `setCurrentOperatingMode` on this appliance, yet away is reachable
   // through `setAbsenceMode`, so it must still be offered.
   const mode = entries.find((e) => e.key === 'mode').gladysFeature;
+  // Eco, Manual, Away — no separate "Auto": this family has no third DHW mode,
+  // and offering one would send a value the appliance silently ignores.
   assert.deepEqual(
     mode.supported_options.map((o) => o.value),
-    [2, 4, 1, 5],
+    [2, 4, 5],
   );
 });
 
@@ -619,14 +622,15 @@ test('a real Atlantic LINEO gets a refresh it actually declares', () => {
   ]);
   // Away is a mode value, not a control of its own, so every other mode has to
   // leave it — otherwise the appliance stays away and the pick does nothing.
-  assert.deepEqual(buildCommand(device, { key: 'mode' }, 1), [
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 2), [
     { name: 'setAbsenceMode', parameters: ['off'] },
     { name: 'setDHWMode', parameters: ['autoMode'] },
     { name: 'refreshDHWMode', parameters: [] },
+    { name: 'refreshWaterTargetTemperature', parameters: [] },
   ]);
-  assert.deepEqual(buildCommand(device, { key: 'mode' }, 2), [
+  assert.deepEqual(buildCommand(device, { key: 'mode' }, 4), [
     { name: 'setAbsenceMode', parameters: ['off'] },
-    { name: 'setDHWMode', parameters: ['manualEcoActive'] },
+    { name: 'setDHWMode', parameters: ['manualEcoInactive'] },
     { name: 'refreshDHWMode', parameters: [] },
     { name: 'refreshWaterTargetTemperature', parameters: [] },
   ]);
@@ -693,4 +697,45 @@ test('the heating status understands the word the appliance uses', () => {
   assert.equal(stateToGladysValue(heating, 'on'), 1);
   assert.equal(stateToGladysValue(heating, 'off'), 0);
   assert.equal(stateToGladysValue(heating, null), null, 'an absent state still says nothing');
+});
+
+test('the two appliance families do not share a setDHWMode vocabulary', () => {
+  // The regression this guards, reported from a real tank: picking Auto put the
+  // appliance in Eco+, and picking Eco did nothing at all. `setDHWMode` takes
+  // the same three words on both families with different meanings — on
+  // modbuslink, `autoMode` IS eco and `manualEcoActive` is never accepted.
+  const modbuslink = makeAtlanticModbuslinkWaterHeater();
+  const io = makeWaterHeater();
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const command = (device, mode) => {
+    const built = buildCommand(device, { key: 'mode' }, mode);
+    return built && built.find((c) => c.name === 'setDHWMode')?.parameters[0];
+  };
+  const derive = (device, value) => {
+    const states = { ...Object.fromEntries(device.states.map((s) => [s.name, s.value])) };
+    const modeState = device.states.find((s) => s.name.endsWith('DHWModeState')).name;
+    const variant = device.deviceURL.startsWith('modbuslink')
+      ? makeAtlanticModbuslinkWaterHeater({ states: { ...states, [modeState]: value } })
+      : makeWaterHeater({ states: { ...states, [modeState]: value } });
+    return mapDeviceFeatures(variant, ids)
+      .find((e) => e.key === 'mode')
+      .derive(variant);
+  };
+
+  assert.equal(command(modbuslink, WATER_HEATER_MODE.ECO), 'autoMode');
+  assert.equal(command(modbuslink, WATER_HEATER_MODE.MANUAL), 'manualEcoInactive');
+  assert.equal(command(modbuslink, WATER_HEATER_MODE.AUTO), null, 'not offered, not writable');
+  assert.equal(derive(modbuslink, 'autoMode'), WATER_HEATER_MODE.ECO);
+  assert.equal(
+    derive(modbuslink, 'manualEcoActive'),
+    WATER_HEATER_MODE.ECO,
+    'reported, not written',
+  );
+  assert.equal(derive(modbuslink, 'manualEcoInactive'), WATER_HEATER_MODE.MANUAL);
+
+  assert.equal(command(io, WATER_HEATER_MODE.ECO), 'manualEcoActive');
+  assert.equal(command(io, WATER_HEATER_MODE.MANUAL), 'manualEcoInactive');
+  assert.equal(command(io, WATER_HEATER_MODE.AUTO), 'autoMode');
+  assert.equal(derive(io, 'autoMode'), WATER_HEATER_MODE.AUTO);
+  assert.equal(derive(io, 'manualEcoActive'), WATER_HEATER_MODE.ECO);
 });

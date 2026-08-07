@@ -41,6 +41,15 @@
 
 ### Fixed
 
+- **The mode vocabulary now follows the appliance family.** `setDHWMode` takes
+  the same three words on `io` and `modbuslink` tanks with different meanings,
+  and the `io` reading was being applied to both. On a `modbuslink` tank
+  `autoMode` IS the energy-saving mode — the one the Atlantic app shows as
+  "Eco+" — and `manualEcoActive` is only ever reported, never accepted as a
+  write. Picking "Auto" therefore landed on Eco+, and picking "Eco" did nothing
+  at all. Those tanks now offer Eco, Manual and Away only: they have no third
+  DHW mode, and offering one sent a value the appliance silently ignored.
+
 - **Selecting the "Away" mode no longer does nothing on Atlantic modbuslink
   tanks.** These appliances ignore a plain `setAbsenceMode('on')`: they want a
   start date, an end date and the value `prog`. The write now sends the same
