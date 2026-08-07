@@ -253,7 +253,7 @@ test('the water-heater constants match the Gladys taxonomy', () => {
     ECO: 2,
     BOOST: 3,
     MANUAL: 4,
-    ABSENCE: 5,
+    AWAY: 5,
     PROGRAM: 6,
   });
 });
@@ -297,7 +297,7 @@ test('the mode declares only the modes the appliance can actually reach', () => 
     { value: 2, label: 'Eco', sort_order: 0 },
     { value: 4, label: 'Manual', sort_order: 1 },
     { value: 1, label: 'Auto', sort_order: 2 },
-    { value: 5, label: 'Absence', sort_order: 3 },
+    { value: 5, label: 'Away', sort_order: 3 },
   ]);
   // BOOST is deliberately absent: this appliance reports its boost as a
   // duration of its own, and one function must never get two controls.

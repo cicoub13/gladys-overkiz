@@ -10,9 +10,14 @@
   this was built and tested against; other families get whatever they report,
   without their vendor-specific commands.
   - **Requires Gladys 4.85 or later**, which introduces the `water-heater`
-    device feature category (GladysAssistant/Gladys#2771). `gladys_version` was
-    raised accordingly — confirm the number against the release that actually
-    ships the category before publishing.
+    device feature category (GladysAssistant/Gladys#2771). That PR is merged,
+    but no Gladys release carries it yet — master is still 4.84.4 — so
+    `gladys_version` is a forecast of the next minor. Confirm it against the
+    release that actually ships the category before publishing.
+  - The Gladys mode for a holiday period is `AWAY` (value 5). The appliance
+    calls the same thing "absence", which is why the Overkiz side of the
+    mapping keeps that word — `io:DHWAbsenceModeState`, `setAbsenceMode` and
+    the `absence` key of `setCurrentOperatingMode`.
   - These appliances present eco and absence as two independent switches rather
     than as a selector. They are folded into the single Gladys `mode` feature,
     which declares the values it can actually reach through `supported_options`.

@@ -510,7 +510,8 @@ test('a derived feature is recomputed when any of its states changes', async () 
     await overkiz.onStates(heater, [{ name, value }]);
   };
 
-  // The mode reads `io:DHWModeState`, but absence alone flips it to ABSENCE.
+  // The mode reads `io:DHWModeState`, but the appliance's absence flag alone
+  // flips it to the Gladys AWAY mode.
   await emit('io:AwayModeDurationState', 'always');
   assert.deepEqual(gladys.calls.states.flat(), [
     { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 5 },

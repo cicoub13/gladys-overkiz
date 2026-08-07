@@ -12,11 +12,11 @@ import {
   DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
 
-// The Gladys `water-heater` device feature category (GladysAssistant/Gladys#2771)
-// is not mirrored by `@gladysassistant/integration-sdk` yet — it is absent from
-// 0.10.0, the latest published version — so its strings are declared here and
-// locked by a test. Swap them for `DEVICE_FEATURE_CATEGORIES.WATER_HEATER` and
-// `DEVICE_FEATURE_TYPES.WATER_HEATER` as soon as an SDK release carries them.
+// The Gladys `water-heater` device feature category (GladysAssistant/Gladys#2771,
+// merged) is not mirrored by `@gladysassistant/integration-sdk` yet — it is
+// absent from 0.10.0, the latest published version — so its strings are declared
+// here and locked by a test. Swap them for `DEVICE_FEATURE_CATEGORIES.WATER_HEATER`
+// and `DEVICE_FEATURE_TYPES.WATER_HEATER` as soon as an SDK release carries them.
 export const WATER_HEATER_CATEGORY = 'water-heater';
 
 export const WATER_HEATER_TYPES = {
@@ -37,7 +37,7 @@ export const WATER_HEATER_MODE = {
   ECO: 2,
   BOOST: 3,
   MANUAL: 4,
-  ABSENCE: 5,
+  AWAY: 5,
   PROGRAM: 6,
 };
 
@@ -299,7 +299,7 @@ function isDhwFlagActive(rawValue) {
  */
 function deriveWaterHeaterMode(device, { modeStateName, absenceStateName }) {
   if (absenceStateName && isDhwFlagActive(device.get(absenceStateName))) {
-    return WATER_HEATER_MODE.ABSENCE;
+    return WATER_HEATER_MODE.AWAY;
   }
   if (!modeStateName) {
     return null;
@@ -361,7 +361,9 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
     supportedOptions.push(...DHW_WRITABLE_MODES);
   }
   if (canSetAbsence) {
-    supportedOptions.push({ value: WATER_HEATER_MODE.ABSENCE, label: 'Absence' });
+    // Gladys calls this mode "away"; the appliance calls the same thing
+    // "absence", which is why the Overkiz side below keeps that word.
+    supportedOptions.push({ value: WATER_HEATER_MODE.AWAY, label: 'Away' });
   }
 
   if (modeStateName || supportedOptions.length > 0) {
@@ -794,7 +796,7 @@ export function stateToGladysValue(entry, rawValue) {
 function buildWaterHeaterModeCommands(commands, mode) {
   const commandList = [];
 
-  if (mode === WATER_HEATER_MODE.ABSENCE) {
+  if (mode === WATER_HEATER_MODE.AWAY) {
     if (commands.has('setCurrentOperatingMode')) {
       commandList.push({
         name: 'setCurrentOperatingMode',
