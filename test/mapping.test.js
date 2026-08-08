@@ -631,16 +631,21 @@ test('a real Atlantic LINEO gets a refresh it actually declares', () => {
     { name: 'setDHWMode', parameters: ['autoMode'] },
     { name: 'refreshDHWMode', parameters: [] },
     { name: 'refreshWaterTargetTemperature', parameters: [] },
+    { name: 'refreshHeatingStatus', parameters: [] },
   ]);
   assert.deepEqual(buildCommand(device, { key: 'mode' }, 4), [
     { name: 'setAbsenceMode', parameters: ['off'] },
     { name: 'setDHWMode', parameters: ['manualEcoInactive'] },
     { name: 'refreshDHWMode', parameters: [] },
     { name: 'refreshWaterTargetTemperature', parameters: [] },
+    { name: 'refreshHeatingStatus', parameters: [] },
   ]);
+  // Whether the appliance is heating is what a boost is FOR, so it is asked
+  // for too — nothing else would refresh it for up to half an hour.
   assert.deepEqual(buildCommand(device, { key: 'boost' }, 1), [
     { name: 'setBoostMode', parameters: ['on'] },
     { name: 'refreshBoostMode', parameters: [] },
+    { name: 'refreshHeatingStatus', parameters: [] },
   ]);
 });
 
@@ -673,6 +678,7 @@ test('away mode is written as a date range on a modbuslink appliance', () => {
     { name: 'setAbsenceEndDate', parameters: [{ ...date, year: 2027 }] },
     { name: 'setAbsenceMode', parameters: ['prog'] },
     { name: 'refreshAbsenceMode', parameters: [] },
+    { name: 'refreshHeatingStatus', parameters: [] },
   ]);
 
   const away = makeAtlanticModbuslinkWaterHeater({

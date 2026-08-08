@@ -206,6 +206,11 @@ const DHW_REFRESH_TEMPERATURE_COMMANDS = [
   'refreshTargetDHWTemperature',
   'refreshWaterTargetTemperature',
 ];
+// Whether the appliance is heating is what a boost or a mode change is meant to
+// alter, so it is asked for alongside them. Nothing else would: the state is
+// otherwise only refreshed when the appliance pushes it on its own or by the
+// client's own 30-minute sweep, which is long enough to look broken.
+const DHW_REFRESH_HEATING_COMMANDS = ['refreshHeatingStatus'];
 
 // Setpoint bounds when the appliance does not report its own range. Home
 // Assistant uses the same defaults for this family.
@@ -942,6 +947,7 @@ function buildWaterHeaterModeCommands(commands, mode, now, dialect) {
     }
     commandList.push(...away);
     pushRefresh(commandList, commands, DHW_REFRESH_ABSENCE_COMMANDS);
+    pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
     return commandList;
   }
 
@@ -967,6 +973,7 @@ function buildWaterHeaterModeCommands(commands, mode, now, dialect) {
   if (mode !== WATER_HEATER_MODE.AUTO) {
     pushRefresh(commandList, commands, DHW_REFRESH_TEMPERATURE_COMMANDS);
   }
+  pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
   return commandList;
 }
 
@@ -978,6 +985,7 @@ function buildWaterHeaterBoostCommands(commands, on) {
   if (commands.has('setBoostMode')) {
     const commandList = [{ name: 'setBoostMode', parameters: [on ? 'on' : 'off'] }];
     pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
+    pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
     return commandList;
   }
 
@@ -995,6 +1003,7 @@ function buildWaterHeaterBoostCommands(commands, on) {
     return null;
   }
   pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
+  pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
   return commandList;
 }
 

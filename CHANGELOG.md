@@ -41,6 +41,12 @@
 
 ### Fixed
 
+- **"Heating" is asked for after a boost or a mode change.** Its value was
+  correct, but nothing ever requested it: the appliance declares
+  `refreshHeatingStatus` and it was never sent, so whether the tank is heating
+  only moved when the appliance volunteered it or on the client's 30-minute
+  sweep — long enough, right after starting a boost, to look stuck at idle.
+
 - **Hot water left is published in litres, not as a percentage.** A tester saw
   "176 %". `core:RemainingHotWaterState` and `core:V40WaterVolumeEstimationState`
   are both volumes — the litres drawable at 40 °C — whatever the first state
