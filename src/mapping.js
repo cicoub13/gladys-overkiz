@@ -161,7 +161,10 @@ export function mapDeviceFeatures(device, ids) {
     const canOpenClose =
       (commands.has('open') && commands.has('close')) ||
       (commands.has('up') && commands.has('down')) ||
-      (commands.has('deploy') && commands.has('undeploy'));
+      (commands.has('deploy') && commands.has('undeploy')) ||
+      // RTS garage door openers only expose a single toggle command, like the
+      // lone button on their physical remote: open and close both cycle it.
+      commands.has('cycle');
     if (canOpenClose) {
       entries.push({
         key: 'state',
@@ -456,14 +459,14 @@ export function buildCommand(device, entry, value) {
       return null;
     }
     if (numeric === 1) {
-      for (const name of ['open', 'up', 'deploy']) {
+      for (const name of ['open', 'up', 'deploy', 'cycle']) {
         if (commands.has(name)) {
           return { name, parameters: [] };
         }
       }
       return null;
     }
-    for (const name of ['close', 'down', 'undeploy']) {
+    for (const name of ['close', 'down', 'undeploy', 'cycle']) {
       if (commands.has(name)) {
         return { name, parameters: [] };
       }
