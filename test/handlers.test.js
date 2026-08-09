@@ -62,7 +62,12 @@ function makeFakeClock() {
   };
 }
 
-function setup({ config = VALID_CONFIG, devices = [makeLight()], startError = null } = {}) {
+function setup({
+  config = VALID_CONFIG,
+  devices = [makeLight()],
+  startError = null,
+  logger: loggerOverride = logger,
+} = {}) {
   const gladys = makeFakeGladys({ config });
   const overkiz = makeFakeOverkiz({ devices, startError });
   const scheduleTimer = makeFakeTimer();
@@ -70,7 +75,7 @@ function setup({ config = VALID_CONFIG, devices = [makeLight()], startError = nu
   const handlers = createHandlers({
     gladys,
     overkiz,
-    logger,
+    logger: loggerOverride,
     scheduleTimer,
     now: clock.now,
     sleep: clock.sleep,
@@ -108,6 +113,38 @@ test('a complete configuration connects, publishes the devices and their states'
   );
 
   assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+});
+
+test('a cover with a position but no open/close command logs its raw commands', async () => {
+  const warnings = [];
+  const fakeLogger = { ...logger, warn: (msg) => warnings.push(msg) };
+  const device = makeOverkizDevice({
+    uiClass: 'GarageDoor',
+    commands: ['setClosure'],
+    states: { 'core:ClosureState': 40 },
+  });
+  const { handlers } = setup({ devices: [device], logger: fakeLogger });
+
+  await handlers.gladysConnected();
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /GarageDoor/);
+  assert.match(warnings[0], /setClosure/);
+});
+
+test('a cover with both a position and an open/close command logs nothing', async () => {
+  const warnings = [];
+  const fakeLogger = { ...logger, warn: (msg) => warnings.push(msg) };
+  const device = makeOverkizDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: { 'core:ClosureState': 40 },
+  });
+  const { handlers } = setup({ devices: [device], logger: fakeLogger });
+
+  await handlers.gladysConnected();
+
+  assert.equal(warnings.length, 0);
 });
 
 test('unchanged states are not republished', async () => {

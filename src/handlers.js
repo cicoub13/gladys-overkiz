@@ -70,6 +70,18 @@ export function createHandlers({
         mappedDevices.set(device.deviceURL, mapped);
         deviceUrlByExternalId.set(mapped.device.external_id, device.deviceURL);
         discovered.push(mapped.device);
+        // A cover reporting a position but no open/close/stop command means its
+        // Overkiz commands didn't match any known pair — log them so unsupported
+        // command sets (new protocols, unusual widgets) can be diagnosed and added.
+        const hasPosition = mapped.entries.some((e) => e.key === 'position');
+        const hasState = mapped.entries.some((e) => e.key === 'state');
+        if (hasPosition && !hasState) {
+          const commands = (device.definition?.commands ?? []).map((c) => c.commandName);
+          logger.warn(
+            `${device.label} (${device.definition?.uiClass}) has no open/close command. ` +
+              `Available Overkiz commands: ${commands.join(', ') || '(none)'}`,
+          );
+        }
       }
     }
     return discovered;
