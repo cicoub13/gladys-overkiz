@@ -306,16 +306,18 @@ export function createHandlers({
   }
 
   // --- Manifest action: test the connection ----------------------------------
+  // The SDK only shows a result in red when the handler throws (a resolved
+  // value is always shown in green, whatever it says) — so failures must
+  // throw here, not return a message describing the failure.
   async function testConnection() {
     const result = await connectNow();
     if (result.status === 'incomplete_config') {
-      return {
-        en: 'Configuration incomplete: fill in the server, email and password first.',
-        fr: "Configuration incomplète : renseignez d'abord le serveur, l'email et le mot de passe.",
-      };
+      throw new Error(
+        "Configuration incomplete: fill in the server, email and password first. / Configuration incomplète : renseignez d'abord le serveur, l'email et le mot de passe.",
+      );
     }
     if (result.status === 'failed') {
-      return result.error.message;
+      throw new Error(`${result.error.message.en} / ${result.error.message.fr}`);
     }
     return {
       en: `Connection OK, ${result.deviceCount} supported device(s) found.`,

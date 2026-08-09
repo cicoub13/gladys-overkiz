@@ -288,23 +288,19 @@ test('the manifest actions are all exposed as handlers', () => {
 
 test('testing the connection reports the real cause of a failure', async () => {
   // The regression this guards: a refused password used to answer
-  // "Connection OK, 0 supported device(s) found."
+  // "Connection OK, 0 supported device(s) found." — in green, since the SDK
+  // only shows red when the action handler throws.
   const { handlers } = setup({ startError: 'Error 401 Bad credentials (AUTHENTICATION_ERROR)' });
   await handlers.configUpdated(VALID_CONFIG);
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /identifiants/);
-  assert.doesNotMatch(message.fr, /OK/);
+  await assert.rejects(handlers.actions.test_connection(), /identifiants/);
 });
 
 test('testing the connection distinguishes an unreachable cloud', async () => {
   const { handlers } = setup({ startError: 'getaddrinfo ENOTFOUND ha101-1.overkiz.com' });
   await handlers.configUpdated(VALID_CONFIG);
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /injoignable/);
+  await assert.rejects(handlers.actions.test_connection(), /injoignable/);
 });
 
 test('testing the connection counts the supported devices on success', async () => {
@@ -320,9 +316,7 @@ test('testing the connection asks for the missing configuration first', async ()
   const { handlers } = setup({ config: {} });
   await handlers.gladysConnected();
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /Configuration incomplète/);
+  await assert.rejects(handlers.actions.test_connection(), /Configuration incomplète/);
 });
 
 // --- A failed publish must not lose the state --------------------------------
