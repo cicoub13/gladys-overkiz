@@ -151,6 +151,26 @@ test('buildCommand maps the shutter state to open/close/stop', () => {
   assert.deepEqual(buildCommand(device, { key: 'state' }, 0), { name: 'stop', parameters: [] });
 });
 
+test('an RTS garage door (single cycle command) still maps to a state feature', () => {
+  // RTS garage door openers expose one toggle command, like the lone button
+  // of their physical remote — no separate open/close commands.
+  const device = makeDevice({
+    uiClass: 'GarageDoor',
+    commands: ['cycle'],
+    states: { 'core:ClosureState': 100 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  const keys = entries.map((e) => e.key).sort();
+  assert.deepEqual(keys, ['position', 'state']);
+});
+
+test('buildCommand maps open and close to the same cycle command for RTS garage doors', () => {
+  const device = makeDevice({ uiClass: 'GarageDoor', commands: ['cycle'] });
+  assert.deepEqual(buildCommand(device, { key: 'state' }, 1), { name: 'cycle', parameters: [] });
+  assert.deepEqual(buildCommand(device, { key: 'state' }, -1), { name: 'cycle', parameters: [] });
+});
+
 test('buildCommand maps binary values to on/off', () => {
   const device = makeDevice({ uiClass: 'OnOff', commands: ['on', 'off'] });
   assert.deepEqual(buildCommand(device, { key: 'binary' }, 1), { name: 'on', parameters: [] });

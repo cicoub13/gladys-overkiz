@@ -102,7 +102,9 @@
   The written value then only came back on the next 30-minute poll. Refreshes
   are now picked from an ordered candidate list, still restricted to the
   commands the device declares.
-
+- **RTS garage door openers now get open/close commands.** These only expose a
+  single `cycle` command (like the lone button on their physical remote), which
+  wasn't recognized, so only a read-only position was created.
 - **"Test the connection" no longer reports success after a failure.** The wrapper
   marked itself connected before the first API call, so a refused password
   answered `Connection OK, 0 supported device(s) found.` while the status badge

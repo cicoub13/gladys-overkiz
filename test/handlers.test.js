@@ -62,7 +62,12 @@ function makeFakeClock() {
   };
 }
 
-function setup({ config = VALID_CONFIG, devices = [makeLight()], startError = null } = {}) {
+function setup({
+  config = VALID_CONFIG,
+  devices = [makeLight()],
+  startError = null,
+  logger: loggerOverride = logger,
+} = {}) {
   const gladys = makeFakeGladys({ config });
   const overkiz = makeFakeOverkiz({ devices, startError });
   const scheduleTimer = makeFakeTimer();
@@ -70,7 +75,7 @@ function setup({ config = VALID_CONFIG, devices = [makeLight()], startError = nu
   const handlers = createHandlers({
     gladys,
     overkiz,
-    logger,
+    logger: loggerOverride,
     scheduleTimer,
     now: clock.now,
     sleep: clock.sleep,
@@ -108,6 +113,38 @@ test('a complete configuration connects, publishes the devices and their states'
   );
 
   assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+});
+
+test('a cover with a position but no open/close command logs its raw commands', async () => {
+  const warnings = [];
+  const fakeLogger = { ...logger, warn: (msg) => warnings.push(msg) };
+  const device = makeOverkizDevice({
+    uiClass: 'GarageDoor',
+    commands: ['setClosure'],
+    states: { 'core:ClosureState': 40 },
+  });
+  const { handlers } = setup({ devices: [device], logger: fakeLogger });
+
+  await handlers.gladysConnected();
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /GarageDoor/);
+  assert.match(warnings[0], /setClosure/);
+});
+
+test('a cover with both a position and an open/close command logs nothing', async () => {
+  const warnings = [];
+  const fakeLogger = { ...logger, warn: (msg) => warnings.push(msg) };
+  const device = makeOverkizDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: { 'core:ClosureState': 40 },
+  });
+  const { handlers } = setup({ devices: [device], logger: fakeLogger });
+
+  await handlers.gladysConnected();
+
+  assert.equal(warnings.length, 0);
 });
 
 test('unchanged states are not republished', async () => {
@@ -288,23 +325,19 @@ test('the manifest actions are all exposed as handlers', () => {
 
 test('testing the connection reports the real cause of a failure', async () => {
   // The regression this guards: a refused password used to answer
-  // "Connection OK, 0 supported device(s) found."
+  // "Connection OK, 0 supported device(s) found." — in green, since the SDK
+  // only shows red when the action handler throws.
   const { handlers } = setup({ startError: 'Error 401 Bad credentials (AUTHENTICATION_ERROR)' });
   await handlers.configUpdated(VALID_CONFIG);
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /identifiants/);
-  assert.doesNotMatch(message.fr, /OK/);
+  await assert.rejects(handlers.actions.test_connection(), /identifiants/);
 });
 
 test('testing the connection distinguishes an unreachable cloud', async () => {
   const { handlers } = setup({ startError: 'getaddrinfo ENOTFOUND ha101-1.overkiz.com' });
   await handlers.configUpdated(VALID_CONFIG);
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /injoignable/);
+  await assert.rejects(handlers.actions.test_connection(), /injoignable/);
 });
 
 test('testing the connection counts the supported devices on success', async () => {
@@ -320,9 +353,7 @@ test('testing the connection asks for the missing configuration first', async ()
   const { handlers } = setup({ config: {} });
   await handlers.gladysConnected();
 
-  const message = await handlers.actions.test_connection();
-
-  assert.match(message.fr, /Configuration incomplète/);
+  await assert.rejects(handlers.actions.test_connection(), /Configuration incomplète/);
 });
 
 // --- A failed publish must not lose the state --------------------------------
