@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createHandlers } from '../src/handlers.js';
-import { makeFakeGladys, makeFakeOverkiz, makeOverkizDevice } from './helpers.js';
+import { makeFakeGladys, makeFakeOverkiz, makeOverkizDevice, makeWaterHeater } from './helpers.js';
 
 const logger = createLogger({ level: 'silent' });
 
@@ -522,4 +522,224 @@ test('a small setup never waits', async () => {
   await handlers.gladysConnected();
 
   assert.deepEqual(clock.sleeps, []);
+});
+
+// --- Water heaters -----------------------------------------------------------
+
+const WATER_HEATER_ID = 'overkiz:overkiz:io-1111-2222-3333-44444444-1';
+
+test('a derived feature is recomputed when any of its states changes', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, overkiz, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  // `overkiz-client` writes the new values into the device before it emits, so
+  // the fake reproduces that ordering.
+  const emit = async (name, value) => {
+    heater.states.find((s) => s.name === name).value = value;
+    await overkiz.onStates(heater, [{ name, value }]);
+  };
+
+  // The mode reads `io:DHWModeState`, but the appliance's absence flag alone
+  // flips it to the Gladys AWAY mode.
+  await emit('io:AwayModeDurationState', 'always');
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 5 },
+  ]);
+
+  gladys.calls.states.length = 0;
+  await emit('io:AwayModeDurationState', '0');
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 2 },
+  ]);
+
+  gladys.calls.states.length = 0;
+  await emit('io:DHWModeState', 'autoMode');
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 1 },
+  ]);
+});
+
+test('a batch touching both states of a derived feature publishes it once', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, overkiz, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  heater.states.find((s) => s.name === 'io:DHWModeState').value = 'autoMode';
+  heater.states.find((s) => s.name === 'io:AwayModeDurationState').value = '0';
+  await overkiz.onStates(heater, [
+    { name: 'io:DHWModeState', value: 'autoMode' },
+    { name: 'io:AwayModeDurationState', value: '0' },
+  ]);
+
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 1 },
+  ]);
+});
+
+test('a water heater publishes its initial states on connection', async () => {
+  const { gladys, handlers } = setup({ devices: [makeWaterHeater()] });
+
+  await handlers.gladysConnected();
+
+  const published = Object.fromEntries(
+    gladys.calls.states.flat().map((s) => [s.device_feature_external_id, s.state]),
+  );
+  assert.deepEqual(published, {
+    [`${WATER_HEATER_ID}:mode`]: 2,
+    [`${WATER_HEATER_ID}:target_temperature`]: 54,
+    [`${WATER_HEATER_ID}:remaining_hot_water`]: 70,
+    [`${WATER_HEATER_ID}:water_temperature`]: 48.5,
+    // boost 0 and heating 'off' both map to 0 and are published as such.
+    [`${WATER_HEATER_ID}:boost`]: 0,
+    [`${WATER_HEATER_ID}:heating`]: 0,
+  });
+});
+
+test('a mode command sends the whole ordered sequence and echoes the mode', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, overkiz, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  const featureId = `${WATER_HEATER_ID}:mode`;
+  await handlers.setValue(
+    { external_id: WATER_HEATER_ID, name: 'Water heater' },
+    { external_id: featureId },
+    1,
+  );
+
+  assert.equal(overkiz.calls.execute.length, 1, 'one action carries the whole sequence');
+  assert.deepEqual(overkiz.calls.execute[0].command, [
+    { name: 'setCurrentOperatingMode', parameters: [{ relaunch: 'off', absence: 'off' }] },
+    { name: 'setDHWMode', parameters: ['autoMode'] },
+  ]);
+  // A derived feature echoes too: it has feedback, just not a single state.
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: featureId, state: 1 },
+  ]);
+});
+
+test('a boost command is refused when the appliance cannot boost', async () => {
+  const heater = makeWaterHeater({ commands: ['setTargetTemperature'] });
+  const { handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+
+  await assert.rejects(
+    () =>
+      handlers.setValue(
+        { external_id: WATER_HEATER_ID },
+        { external_id: `${WATER_HEATER_ID}:boost` },
+        1,
+      ),
+    /No Overkiz command/,
+  );
+});
+
+// --- The dump action ---------------------------------------------------------
+
+test('the dump action asks for a connection first', async () => {
+  const { handlers } = setup();
+
+  const message = await handlers.actions.dump_devices();
+
+  assert.match(message.fr, /connexion/);
+});
+
+test('the dump action writes every device to the logs', async () => {
+  const lines = [];
+  const gladys = makeFakeGladys({ config: VALID_CONFIG });
+  const overkiz = makeFakeOverkiz({ devices: [makeWaterHeater()] });
+  const handlers = createHandlers({
+    gladys,
+    overkiz,
+    logger: { ...logger, info: (line) => lines.push(line) },
+    scheduleTimer: makeFakeTimer(),
+  });
+  await handlers.gladysConnected();
+
+  const message = await handlers.actions.dump_devices();
+
+  const dump = lines.find((line) => line.startsWith('Device dump:'));
+  assert.ok(dump, 'the raw device is logged');
+  const payload = JSON.parse(dump.slice('Device dump: '.length));
+  assert.equal(payload.uiClass, 'WaterHeatingSystem');
+  assert.equal(
+    payload.controllableName,
+    'io:AtlanticDomesticHotWaterProductionV2_CV4E_IOComponent',
+  );
+  assert.ok(payload.commands.includes('setDHWMode'));
+  assert.ok(payload.states.some((s) => s.name === 'io:DHWModeState'));
+  // The dump carries the hub serial number, so the message says so.
+  assert.match(message.fr, /1 appareil/);
+  assert.match(message.fr, /numéro de série/);
+});
+
+// --- Creating a device in Gladys ---------------------------------------------
+
+test('creating a device publishes its states, which discovery could not', async () => {
+  // The regression this guards: states published before the user creates the
+  // device are ACCEPTED by the host API and silently dropped — there is no
+  // feature to attach them to yet — but they were recorded as published, so
+  // the freshly created device stayed empty until each of its states happened
+  // to change. A water heater mode or setpoint does not change on its own.
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+  assert.ok(gladys.calls.states.flat().length > 0, 'discovery published them into the void');
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  const published = Object.fromEntries(
+    gladys.calls.states.flat().map((s) => [s.device_feature_external_id, s.state]),
+  );
+  assert.deepEqual(published, {
+    [`${WATER_HEATER_ID}:mode`]: 2,
+    [`${WATER_HEATER_ID}:boost`]: 0,
+    [`${WATER_HEATER_ID}:target_temperature`]: 54,
+    [`${WATER_HEATER_ID}:remaining_hot_water`]: 70,
+    [`${WATER_HEATER_ID}:heating`]: 0,
+    [`${WATER_HEATER_ID}:water_temperature`]: 48.5,
+  });
+});
+
+test('creating one device does not republish the others', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater, makeLight()] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  const ids = gladys.calls.states.flat().map((s) => s.device_feature_external_id);
+  assert.ok(ids.length > 0);
+  assert.ok(
+    ids.every((id) => id.startsWith(WATER_HEATER_ID)),
+    'only the created device is republished',
+  );
+});
+
+test('creating a device Overkiz does not know about is ignored', async () => {
+  const { gladys, handlers } = setup();
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  await handlers.deviceCreated({ external_id: 'overkiz:overkiz:not-ours' });
+
+  assert.equal(gladys.calls.states.length, 0);
+});
+
+test('deleting a device lets a later recreation publish again', async () => {
+  const heater = makeWaterHeater();
+  const { gladys, handlers } = setup({ devices: [heater] });
+  await handlers.gladysConnected();
+
+  await handlers.deviceDeleted({ external_id: WATER_HEATER_ID });
+  gladys.calls.states.length = 0;
+  await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
+
+  assert.equal(gladys.calls.states.flat().length, 6, 'the values were not remembered as published');
 });

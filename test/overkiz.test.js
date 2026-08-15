@@ -139,3 +139,33 @@ test('stop is idempotent and clears the device map', async () => {
   assert.equal(overkiz.getDevice('io://1/1'), null);
   assert.equal(client.calls.removeAllListeners, 1, 'the second stop is a no-op');
 });
+
+test('execute accepts a single command or an ordered list', async () => {
+  const executions = [];
+  const client = makeFakeClient();
+  client.execute = async (label, execution) => executions.push({ label, execution });
+  const overkiz = new Overkiz({ createClient: () => client });
+  await overkiz.start(CONFIG);
+
+  await overkiz.execute('io://1/1', { name: 'on', parameters: [] });
+  assert.deepEqual(
+    executions[0].execution.actions[0].commands.map((c) => [c.name, c.parameters]),
+    [['on', []]],
+  );
+
+  // Water heaters need `setXxx` then `refreshXxx`, and a single action is what
+  // guarantees Overkiz runs them in that order.
+  await overkiz.execute('io://1/1', [
+    { name: 'setTargetTemperature', parameters: [58] },
+    { name: 'refreshTargetTemperature', parameters: [] },
+  ]);
+  const { actions } = executions[1].execution;
+  assert.equal(actions.length, 1, 'one action, not one per command');
+  assert.deepEqual(
+    actions[0].commands.map((c) => [c.name, c.parameters]),
+    [
+      ['setTargetTemperature', [58]],
+      ['refreshTargetTemperature', []],
+    ],
+  );
+});

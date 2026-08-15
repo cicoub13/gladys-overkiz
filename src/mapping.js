@@ -12,6 +12,35 @@ import {
   DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
 
+// The Gladys `water-heater` device feature category (GladysAssistant/Gladys#2771,
+// merged) is not mirrored by `@gladysassistant/integration-sdk` yet — it is
+// absent from 0.10.0, the latest published version — so its strings are declared
+// here and locked by a test. Swap them for `DEVICE_FEATURE_CATEGORIES.WATER_HEATER`
+// and `DEVICE_FEATURE_TYPES.WATER_HEATER` as soon as an SDK release carries them.
+export const WATER_HEATER_CATEGORY = 'water-heater';
+
+export const WATER_HEATER_TYPES = {
+  BINARY: 'binary',
+  MODE: 'mode',
+  TARGET_TEMPERATURE: 'target-temperature',
+  REMAINING_HOT_WATER: 'remaining-hot-water',
+  HEATING: 'heating',
+  BOOST: 'boost',
+};
+
+// Gladys WATER_HEATER_MODE. The enumeration is the full generic set; which of
+// its values a given appliance offers is declared per feature through
+// `supported_options`, never by narrowing the enum.
+export const WATER_HEATER_MODE = {
+  OFF: 0,
+  AUTO: 1,
+  ECO: 2,
+  BOOST: 3,
+  MANUAL: 4,
+  AWAY: 5,
+  PROGRAM: 6,
+};
+
 // Overkiz state names (subset of pyoverkiz OverkizState)
 export const STATES = {
   CLOSURE: 'core:ClosureState',
@@ -30,6 +59,34 @@ export const STATES = {
   ELECTRIC_POWER_CONSUMPTION: 'core:ElectricPowerConsumptionState',
   ELECTRIC_ENERGY_CONSUMPTION: 'core:ElectricEnergyConsumptionState',
   BATTERY_LEVEL: 'core:BatteryLevelState',
+  // Domestic hot water
+  DHW_MODE: 'io:DHWModeState',
+  DHW_MODE_MODBUSLINK: 'modbuslink:DHWModeState',
+  AWAY_MODE_DURATION: 'io:AwayModeDurationState',
+  DHW_ABSENCE_MODE: 'io:DHWAbsenceModeState',
+  DHW_ABSENCE_MODE_MODBUSLINK: 'modbuslink:DHWAbsenceModeState',
+  BOOST_MODE_DURATION: 'core:BoostModeDurationState',
+  DHW_BOOST_MODE: 'io:DHWBoostModeState',
+  DHW_BOOST_MODE_MODBUSLINK: 'modbuslink:DHWBoostModeState',
+  TARGET_TEMPERATURE: 'core:TargetTemperatureState',
+  TARGET_DHW_TEMPERATURE: 'core:TargetDHWTemperatureState',
+  WATER_TARGET_TEMPERATURE: 'core:WaterTargetTemperatureState',
+  MINIMAL_TEMPERATURE_MANUAL_MODE: 'core:MinimalTemperatureManualModeState',
+  MINIMAL_TEMPERATURE_MANUAL_MODE_MODBUSLINK: 'modbuslink:MinimalTemperatureManualModeState',
+  MAXIMAL_TEMPERATURE_MANUAL_MODE: 'core:MaximalTemperatureManualModeState',
+  MAXIMAL_TEMPERATURE_MANUAL_MODE_MODBUSLINK: 'modbuslink:MaximalTemperatureManualModeState',
+  MIDDLE_WATER_TEMPERATURE: 'io:MiddleWaterTemperatureState',
+  MIDDLE_WATER_TEMPERATURE_MODBUSLINK: 'modbuslink:MiddleWaterTemperatureState',
+  DHW_TEMPERATURE: 'core:DHWTemperatureState',
+  WATER_TEMPERATURE: 'core:WaterTemperatureState',
+  REMAINING_HOT_WATER: 'core:RemainingHotWaterState',
+  REMAINING_HOT_WATER_MODBUSLINK: 'modbuslink:RemainingHotWaterState',
+  V40_WATER_VOLUME: 'core:V40WaterVolumeEstimationState',
+  V40_WATER_VOLUME_MODBUSLINK: 'modbuslink:V40WaterVolumeEstimationState',
+  DHW_CAPACITY: 'io:DHWCapacityState',
+  DHW_CAPACITY_MODBUSLINK: 'modbuslink:DHWCapacityState',
+  HEATING_STATUS: 'core:HeatingStatusState',
+  HEATING_STATUS_MODBUSLINK: 'modbuslink:HeatingStatusState',
 };
 
 // Overkiz uiClass values considered as covers (see HA OVERKIZ_DEVICE_TO_PLATFORM)
@@ -75,6 +132,147 @@ const DEPLOYMENT_POSITION_SOURCES = [
 const POSITION_MY = 108;
 const POSITION_UNKNOWN = 124;
 
+// --- Water heaters -----------------------------------------------------------
+// Overkiz exposes domestic hot water through several incompatible dialects; the
+// lists below are ordered candidates and the first one the device actually
+// reports (or supports, for commands) wins. This mirrors how the cover branch
+// picks its position source.
+const WATER_HEATER_UI_CLASS = 'WaterHeatingSystem';
+
+const DHW_MODE_STATES = [STATES.DHW_MODE, STATES.DHW_MODE_MODBUSLINK];
+const DHW_ABSENCE_STATES = [
+  STATES.AWAY_MODE_DURATION,
+  STATES.DHW_ABSENCE_MODE,
+  STATES.DHW_ABSENCE_MODE_MODBUSLINK,
+];
+const DHW_BOOST_STATES = [
+  STATES.BOOST_MODE_DURATION,
+  STATES.DHW_BOOST_MODE,
+  STATES.DHW_BOOST_MODE_MODBUSLINK,
+];
+// `core:WaterTargetTemperatureState` comes before `core:TargetDHWTemperatureState`
+// on purpose: an appliance reporting both only knows how to refresh the former
+// (`refreshWaterTargetTemperature`), so reading the latter would leave the
+// setpoint stale after a write. Home Assistant reads the same two states in
+// this order for these two families.
+const DHW_TARGET_TEMPERATURE_STATES = [
+  STATES.TARGET_TEMPERATURE,
+  STATES.WATER_TARGET_TEMPERATURE,
+  STATES.TARGET_DHW_TEMPERATURE,
+];
+const DHW_WATER_TEMPERATURE_STATES = [
+  STATES.MIDDLE_WATER_TEMPERATURE,
+  STATES.MIDDLE_WATER_TEMPERATURE_MODBUSLINK,
+  STATES.DHW_TEMPERATURE,
+  STATES.WATER_TEMPERATURE,
+];
+const DHW_HEATING_STATES = [STATES.HEATING_STATUS, STATES.HEATING_STATUS_MODBUSLINK];
+// Hot water left is a VOLUME on every one of these states, never a percentage:
+// `core:RemainingHotWaterState` and `core:V40WaterVolumeEstimationState` are both
+// litres — the volume drawable at 40 °C — and Home Assistant declares them as
+// such. Reading either as a percentage produced readings like "176 %".
+const DHW_REMAINING_HOT_WATER_STATES = [
+  STATES.REMAINING_HOT_WATER,
+  STATES.REMAINING_HOT_WATER_MODBUSLINK,
+  STATES.V40_WATER_VOLUME,
+  STATES.V40_WATER_VOLUME_MODBUSLINK,
+];
+const DHW_CAPACITY_STATES = [STATES.DHW_CAPACITY, STATES.DHW_CAPACITY_MODBUSLINK];
+const DHW_MIN_TEMPERATURE_STATES = [
+  STATES.MINIMAL_TEMPERATURE_MANUAL_MODE,
+  STATES.MINIMAL_TEMPERATURE_MANUAL_MODE_MODBUSLINK,
+];
+const DHW_MAX_TEMPERATURE_STATES = [
+  STATES.MAXIMAL_TEMPERATURE_MANUAL_MODE,
+  STATES.MAXIMAL_TEMPERATURE_MANUAL_MODE_MODBUSLINK,
+];
+
+const DHW_SET_TEMPERATURE_COMMANDS = [
+  'setTargetTemperature',
+  'setTargetDHWTemperature',
+  'setWaterTargetTemperature',
+];
+
+// Overkiz only reports the result of a write once the matching `refreshXxx` has
+// run, and the refresh is NOT always the set command with its verb swapped: an
+// Atlantic modbuslink tank takes `setTargetDHWTemperature` but only offers
+// `refreshWaterTargetTemperature`. Each list is tried in order and the first
+// command the device declares wins.
+const DHW_REFRESH_MODE_COMMANDS = ['refreshDHWMode'];
+const DHW_REFRESH_ABSENCE_COMMANDS = ['refreshAwayModeDuration', 'refreshAbsenceMode'];
+const DHW_REFRESH_BOOST_COMMANDS = ['refreshBoostModeDuration', 'refreshBoostMode'];
+const DHW_REFRESH_TEMPERATURE_COMMANDS = [
+  'refreshTargetTemperature',
+  'refreshTargetDHWTemperature',
+  'refreshWaterTargetTemperature',
+];
+// Whether the appliance is heating is what a boost or a mode change is meant to
+// alter, so it is asked for alongside them. Nothing else would: the state is
+// otherwise only refreshed when the appliance pushes it on its own or by the
+// client's own 30-minute sweep, which is long enough to look broken.
+const DHW_REFRESH_HEATING_COMMANDS = ['refreshHeatingStatus'];
+
+// Setpoint bounds when the appliance does not report its own range. Home
+// Assistant uses the same defaults for this family.
+const DHW_DEFAULT_MIN_TEMPERATURE = 50;
+const DHW_DEFAULT_MAX_TEMPERATURE = 62;
+// V40 capacity fallback, in litres, when the tank does not report its own.
+const DHW_DEFAULT_CAPACITY = 300;
+// `setBoostModeDuration` counts days, and 7 is the longest these appliances take.
+const DHW_BOOST_DURATION_DAYS = 7;
+
+// Overkiz reuses the same three `setDHWMode` values with DIFFERENT meanings
+// from one appliance family to the next, so the vocabulary is chosen from the
+// dialect of the state the mode is read from.
+//
+// On `io` tanks `autoMode` is the learning mode and `manualEcoActive` is eco.
+// On `modbuslink` ones `autoMode` IS the energy-saving mode — what the Atlantic
+// app shows as "Eco+" — and `manualEcoActive` is only ever reported, never
+// accepted as a write: sending it does nothing at all. There is no separate
+// "auto" to offer there, which is also what Home Assistant exposes.
+const DHW_DIALECT_IO = {
+  read: {
+    manualecoactive: WATER_HEATER_MODE.ECO,
+    manualecoinactive: WATER_HEATER_MODE.MANUAL,
+    automode: WATER_HEATER_MODE.AUTO,
+    off: WATER_HEATER_MODE.OFF,
+    stop: WATER_HEATER_MODE.OFF,
+  },
+  write: {
+    [WATER_HEATER_MODE.ECO]: 'manualEcoActive',
+    [WATER_HEATER_MODE.MANUAL]: 'manualEcoInactive',
+    [WATER_HEATER_MODE.AUTO]: 'autoMode',
+  },
+  // The modes reachable through `setDHWMode`, in the order they are offered.
+  options: [
+    { value: WATER_HEATER_MODE.ECO, label: 'Eco' },
+    { value: WATER_HEATER_MODE.MANUAL, label: 'Manual' },
+    { value: WATER_HEATER_MODE.AUTO, label: 'Auto' },
+  ],
+};
+
+const DHW_DIALECT_MODBUSLINK = {
+  read: {
+    automode: WATER_HEATER_MODE.ECO,
+    manualecoactive: WATER_HEATER_MODE.ECO,
+    manualecoinactive: WATER_HEATER_MODE.MANUAL,
+    off: WATER_HEATER_MODE.OFF,
+    stop: WATER_HEATER_MODE.OFF,
+  },
+  write: {
+    [WATER_HEATER_MODE.ECO]: 'autoMode',
+    [WATER_HEATER_MODE.MANUAL]: 'manualEcoInactive',
+  },
+  options: [
+    { value: WATER_HEATER_MODE.ECO, label: 'Eco' },
+    { value: WATER_HEATER_MODE.MANUAL, label: 'Manual' },
+  ],
+};
+
+function dhwDialect(stateNames) {
+  return stateNames.has(STATES.DHW_MODE_MODBUSLINK) ? DHW_DIALECT_MODBUSLINK : DHW_DIALECT_IO;
+}
+
 /**
  * Build a stable, [a-z0-9-] safe platform id from an Overkiz deviceURL
  * (e.g. `io://1234-5678-9012/12345678` -> `io-1234-5678-9012-12345678`).
@@ -105,6 +303,12 @@ const FEATURE_NAMES = {
   power: 'Power',
   energy: 'Energy',
   battery: 'Battery',
+  mode: 'Mode',
+  boost: 'Boost',
+  target_temperature: 'Target temperature',
+  remaining_hot_water: 'Available hot water',
+  heating: 'Heating',
+  water_temperature: 'Water temperature',
 };
 
 function feature(ids, key, overrides) {
@@ -119,17 +323,248 @@ function feature(ids, key, overrides) {
 }
 
 /**
+ * Is an Overkiz "is this mode running" state active?
+ *
+ * The same question is answered in three shapes depending on the state: a plain
+ * `on`/`off`, the literal `always`, or a remaining duration in days — which is
+ * a STRING for `io:AwayModeDurationState` and a number for
+ * `core:BoostModeDurationState`.
+ */
+function isDhwFlagActive(rawValue) {
+  if (rawValue === null || rawValue === undefined) {
+    return false;
+  }
+  if (typeof rawValue === 'boolean') {
+    return rawValue;
+  }
+  if (typeof rawValue === 'number') {
+    return rawValue > 0;
+  }
+  const lowered = String(rawValue).trim().toLowerCase();
+  // `prog` counts as RUNNING, not as "merely scheduled": it is the value the
+  // appliance reports once absence has been set through its start/end dates,
+  // and the Home Assistant overkiz component reads `on` and `prog` alike on
+  // both `modbuslink:DHWAbsenceModeState` and `modbuslink:DHWBoostModeState`.
+  if (lowered === 'always' || lowered === 'on' || lowered === 'prog') {
+    return true;
+  }
+  if (lowered === 'off') {
+    return false;
+  }
+  const asNumber = Number(lowered);
+  return Number.isFinite(asNumber) && asNumber > 0;
+}
+
+/**
+ * Read the water heater mode from the appliance, which spreads it over two
+ * states: absence is a flag of its own and wins over the DHW mode, exactly as
+ * the appliance's own interface presents it.
+ *
+ * Returns null when the reported mode is unknown: staying silent beats
+ * publishing a mode the appliance is not in.
+ */
+function deriveWaterHeaterMode(device, { modeStateName, absenceStateName, dialect }) {
+  if (absenceStateName && isDhwFlagActive(device.get(absenceStateName))) {
+    return WATER_HEATER_MODE.AWAY;
+  }
+  if (!modeStateName) {
+    return null;
+  }
+  const rawValue = device.get(modeStateName);
+  if (typeof rawValue !== 'string') {
+    return null;
+  }
+  const mode = dialect.read[rawValue.trim().toLowerCase()];
+  return mode === undefined ? null : mode;
+}
+
+function firstNumber(stateValues, stateNames, fallback) {
+  for (const stateName of stateNames) {
+    const rawValue = stateValues.get(stateName);
+    // `Number(null)` is 0, which would silently become a bound of its own.
+    if (rawValue === null || rawValue === undefined) {
+      continue;
+    }
+    const value = Number(rawValue);
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Append the first refresh command the device actually declares.
+ *
+ * Only a declared command may be sent: Overkiz rejects the WHOLE action when
+ * one of its commands is unknown to the device, which would take the write
+ * down with the refresh. Appending none is the safe outcome — the state then
+ * lands on the next event poll instead of immediately.
+ */
+function pushRefresh(commandList, commands, candidates) {
+  const name = candidates.find((candidate) => commands.has(candidate));
+  if (name) {
+    commandList.push({ name, parameters: [] });
+  }
+}
+
+/**
+ * Build the water heater features of a `WaterHeatingSystem` device.
+ *
+ * The appliances of this family present absence and eco as independent
+ * switches rather than as a selector; they are folded into the single Gladys
+ * `mode` feature, which declares the values it can actually reach through
+ * `supported_options`. Boost stays a feature of its own because the appliance
+ * reports it natively as a separate duration — mapping it BOTH as a mode value
+ * and as the `boost` type would give two controls over one state.
+ */
+function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
+  const entries = [];
+  const find = (candidates) => candidates.find((stateName) => states.has(stateName)) ?? null;
+
+  const modeStateName = find(DHW_MODE_STATES);
+  const absenceStateName = find(DHW_ABSENCE_STATES);
+  const dialect = dhwDialect(states);
+  const canSetOperatingMode = commands.has('setCurrentOperatingMode');
+  const canSetAbsence = canSetOperatingMode || commands.has('setAbsenceMode');
+
+  const supportedOptions = [];
+  if (commands.has('setDHWMode')) {
+    supportedOptions.push(...dialect.options);
+  }
+  if (canSetAbsence) {
+    // Gladys calls this mode "away"; the appliance calls the same thing
+    // "absence", which is why the Overkiz side below keeps that word.
+    supportedOptions.push({ value: WATER_HEATER_MODE.AWAY, label: 'Away' });
+  }
+
+  if (modeStateName || supportedOptions.length > 0) {
+    entries.push({
+      key: 'mode',
+      stateName: null,
+      watchedStates: [modeStateName, absenceStateName].filter(Boolean),
+      derive: (device) =>
+        deriveWaterHeaterMode(device, { modeStateName, absenceStateName, dialect }),
+      gladysFeature: feature(ids, 'mode', {
+        category: WATER_HEATER_CATEGORY,
+        type: WATER_HEATER_TYPES.MODE,
+        min: WATER_HEATER_MODE.OFF,
+        max: WATER_HEATER_MODE.PROGRAM,
+        read_only: supportedOptions.length === 0,
+        ...(supportedOptions.length > 0
+          ? {
+              supported_options: supportedOptions.map((option, index) => ({
+                ...option,
+                sort_order: index,
+              })),
+            }
+          : {}),
+      }),
+    });
+  }
+
+  const boostStateName = find(DHW_BOOST_STATES);
+  const canSetBoost =
+    commands.has('setBoostMode') || commands.has('setBoostModeDuration') || canSetOperatingMode;
+  if (boostStateName || canSetBoost) {
+    entries.push({
+      key: 'boost',
+      stateName: boostStateName,
+      gladysFeature: feature(ids, 'boost', {
+        category: WATER_HEATER_CATEGORY,
+        type: WATER_HEATER_TYPES.BOOST,
+        min: 0,
+        max: 1,
+        read_only: !canSetBoost,
+      }),
+    });
+  }
+
+  const targetStateName = find(DHW_TARGET_TEMPERATURE_STATES);
+  const canSetTemperature = DHW_SET_TEMPERATURE_COMMANDS.some((name) => commands.has(name));
+  if (targetStateName || canSetTemperature) {
+    entries.push({
+      key: 'target_temperature',
+      stateName: targetStateName,
+      gladysFeature: feature(ids, 'target_temperature', {
+        category: WATER_HEATER_CATEGORY,
+        type: WATER_HEATER_TYPES.TARGET_TEMPERATURE,
+        unit: DEVICE_FEATURE_UNITS.CELSIUS,
+        min: firstNumber(stateValues, DHW_MIN_TEMPERATURE_STATES, DHW_DEFAULT_MIN_TEMPERATURE),
+        max: firstNumber(stateValues, DHW_MAX_TEMPERATURE_STATES, DHW_DEFAULT_MAX_TEMPERATURE),
+        read_only: !canSetTemperature,
+      }),
+    });
+  }
+
+  // Hot water left: the volume the appliance can still draw at 40 °C.
+  const remainingHotWaterStateName = find(DHW_REMAINING_HOT_WATER_STATES);
+  if (remainingHotWaterStateName) {
+    entries.push({
+      key: 'remaining_hot_water',
+      stateName: remainingHotWaterStateName,
+      gladysFeature: feature(ids, 'remaining_hot_water', {
+        category: WATER_HEATER_CATEGORY,
+        type: WATER_HEATER_TYPES.REMAINING_HOT_WATER,
+        unit: DEVICE_FEATURE_UNITS.LITER,
+        min: 0,
+        max: firstNumber(stateValues, DHW_CAPACITY_STATES, DHW_DEFAULT_CAPACITY),
+      }),
+    });
+  }
+
+  const heatingStateName = find(DHW_HEATING_STATES);
+  if (heatingStateName) {
+    entries.push({
+      key: 'heating',
+      stateName: heatingStateName,
+      gladysFeature: feature(ids, 'heating', {
+        category: WATER_HEATER_CATEGORY,
+        type: WATER_HEATER_TYPES.HEATING,
+        min: 0,
+        max: 1,
+      }),
+    });
+  }
+
+  // The water temperature is a temperature measurement like any other, so it
+  // stays a `temperature-sensor` feature rather than becoming a water-heater
+  // type — which is also what plugs it into the rest of Gladys.
+  const waterTemperatureStateName = find(DHW_WATER_TEMPERATURE_STATES);
+  if (waterTemperatureStateName) {
+    entries.push({
+      key: 'water_temperature',
+      stateName: waterTemperatureStateName,
+      gladysFeature: feature(ids, 'water_temperature', {
+        category: DEVICE_FEATURE_CATEGORIES.TEMPERATURE_SENSOR,
+        type: DEVICE_FEATURE_TYPES.SENSOR.DECIMAL,
+        unit: DEVICE_FEATURE_UNITS.CELSIUS,
+        min: 0,
+        max: 100,
+      }),
+    });
+  }
+
+  return entries;
+}
+
+/**
  * Build the Gladys features of an Overkiz device.
  *
  * Returns a list of `{ gladysFeature, stateName, key }` entries: `stateName`
  * is the Overkiz state that feeds the feature (null for write-only features),
  * and `key` identifies the feature for command routing in `buildCommand`.
+ *
+ * A feature whose value comes from SEVERAL Overkiz states instead carries
+ * `watchedStates` (the states that must trigger a recomputation) and `derive`
+ * (which reads them back from the device), leaving `stateName` null.
  */
 export function mapDeviceFeatures(device, ids) {
   const entries = [];
   const uiClass = device.definition?.uiClass;
   const commands = new Set((device.definition?.commands ?? []).map((c) => c.commandName));
-  const states = new Set((device.states ?? []).map((s) => s.name));
+  const stateValues = new Map((device.states ?? []).map((s) => [s.name, s.value]));
+  const states = new Set(stateValues.keys());
 
   if (IGNORED_UI_CLASSES.has(uiClass)) {
     return entries;
@@ -215,6 +650,12 @@ export function mapDeviceFeatures(device, ids) {
       });
     }
     return entries;
+  }
+
+  // --- Water heaters --------------------------------------------------------------
+  if (uiClass === WATER_HEATER_UI_CLASS) {
+    entries.push(...mapWaterHeaterFeatures(ids, commands, states, stateValues));
+    // fall through: these appliances also report energy and battery below
   }
 
   // --- Switches / plugs / sirens ------------------------------------------------
@@ -370,6 +811,22 @@ export function stateToGladysValue(entry, rawValue) {
   if (rawValue === null || rawValue === undefined) {
     return null;
   }
+  // A boost is reported either as an on/off flag or as a remaining duration in
+  // days, so it cannot go through the generic numeric path below.
+  if (key === 'boost') {
+    return isDhwFlagActive(rawValue) ? 1 : 0;
+  }
+  // `core:HeatingStatusState` says `heating` on some appliances, not `on`, and
+  // an unmapped string publishes nothing at all — which left "Heating" empty
+  // for good. Home Assistant reads the same two words and treats anything else
+  // as idle; there is no meaningful third state for "is it heating".
+  if (key === 'heating') {
+    if (typeof rawValue !== 'string') {
+      return null;
+    }
+    const lowered = rawValue.trim().toLowerCase();
+    return lowered === 'on' || lowered === 'heating' ? 1 : 0;
+  }
   if (typeof rawValue === 'string') {
     const lowered = rawValue.toLowerCase();
     // Values of the mapped binary states only (OnOff, Contact, Occupancy,
@@ -412,16 +869,193 @@ export function stateToGladysValue(entry, rawValue) {
 }
 
 /**
- * Build the Overkiz command to run for a Gladys command on a feature.
- * Returns `{ name, parameters }` or null when no command applies.
+ * The Overkiz date shape used by the absence commands, taken from the
+ * appliance's own `core:AbsenceStartDateState`.
+ *
+ * `weekday` follows the Python convention Home Assistant writes (Monday = 0),
+ * not JavaScript's (Sunday = 0) — the appliance appears to ignore the field,
+ * but there is no reason to send a different number than the reference does.
+ */
+function overkizDate(date, yearOffset = 0) {
+  return {
+    month: date.getMonth() + 1,
+    hour: date.getHours(),
+    year: date.getFullYear() + yearOffset,
+    weekday: (date.getDay() + 6) % 7,
+    day: date.getDate(),
+    minute: date.getMinutes(),
+    second: date.getSeconds(),
+  };
+}
+
+/**
+ * Commands that put the appliance into — or take it out of — its away mode.
+ *
+ * Two dialects. The `io` appliances carry absence as a flag of the
+ * `setCurrentOperatingMode` dictionary. The `modbuslink` ones instead expect a
+ * start date, an end date and the value `prog`: `setAbsenceMode('on')` alone
+ * does nothing at all, which is why selecting "Away" appeared to be ignored.
+ * The date sequence mirrors the Home Assistant overkiz component, except that
+ * everything travels in ONE Overkiz action here — the reference has to spread
+ * it over several executions and works around the resulting rate limiting.
+ */
+function buildWaterHeaterAwayCommands(commands, on, now) {
+  if (commands.has('setCurrentOperatingMode')) {
+    return [
+      {
+        name: 'setCurrentOperatingMode',
+        parameters: [{ relaunch: 'off', absence: on ? 'on' : 'off' }],
+      },
+    ];
+  }
+  if (!commands.has('setAbsenceMode')) {
+    return [];
+  }
+  if (!on) {
+    return [{ name: 'setAbsenceMode', parameters: ['off'] }];
+  }
+  const commandList = [];
+  const date = now();
+  // The start and end dates have to agree with the appliance's own clock, so
+  // the reference sets that clock first.
+  if (commands.has('setDateTime')) {
+    commandList.push({ name: 'setDateTime', parameters: [overkizDate(date)] });
+  }
+  if (commands.has('setAbsenceStartDate') && commands.has('setAbsenceEndDate')) {
+    commandList.push({ name: 'setAbsenceStartDate', parameters: [overkizDate(date)] });
+    // Away until further notice: a year out, cancelled by leaving the mode.
+    commandList.push({ name: 'setAbsenceEndDate', parameters: [overkizDate(date, 1)] });
+    commandList.push({ name: 'setAbsenceMode', parameters: ['prog'] });
+    return commandList;
+  }
+  // No date commands: the appliance takes a plain flag.
+  commandList.push({ name: 'setAbsenceMode', parameters: ['on'] });
+  return commandList;
+}
+
+/**
+ * Commands to reach a Gladys water heater mode.
+ *
+ * Away is a mode value here, not a control of its own, so selecting any OTHER
+ * mode has to leave it — otherwise the appliance stays away and the mode the
+ * user picked never takes effect.
+ */
+function buildWaterHeaterModeCommands(commands, mode, now, dialect) {
+  const commandList = [];
+
+  if (mode === WATER_HEATER_MODE.AWAY) {
+    const away = buildWaterHeaterAwayCommands(commands, true, now);
+    if (away.length === 0) {
+      return null;
+    }
+    commandList.push(...away);
+    pushRefresh(commandList, commands, DHW_REFRESH_ABSENCE_COMMANDS);
+    pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
+    return commandList;
+  }
+
+  const overkizMode = dialect.write[mode];
+  if (!overkizMode || !commands.has('setDHWMode')) {
+    return null;
+  }
+  if (!commands.has('setCurrentOperatingMode')) {
+    // Leave away behind; the `setCurrentOperatingMode` dialect below does it
+    // as part of its own reset.
+    commandList.push(...buildWaterHeaterAwayCommands(commands, false, now));
+  }
+  if (commands.has('setCurrentOperatingMode')) {
+    commandList.push({
+      name: 'setCurrentOperatingMode',
+      parameters: [{ relaunch: 'off', absence: 'off' }],
+    });
+  }
+  commandList.push({ name: 'setDHWMode', parameters: [overkizMode] });
+  pushRefresh(commandList, commands, DHW_REFRESH_MODE_COMMANDS);
+  // Eco and manual each carry their own setpoint, so the one Gladys displays
+  // has to be asked for again; auto leaves it alone.
+  if (mode !== WATER_HEATER_MODE.AUTO) {
+    pushRefresh(commandList, commands, DHW_REFRESH_TEMPERATURE_COMMANDS);
+  }
+  pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
+  return commandList;
+}
+
+/**
+ * Commands to start or cancel a boost. Gladys never expires it: the appliance
+ * ends the cycle on its own and reports it back.
+ */
+function buildWaterHeaterBoostCommands(commands, on) {
+  if (commands.has('setBoostMode')) {
+    const commandList = [{ name: 'setBoostMode', parameters: [on ? 'on' : 'off'] }];
+    pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
+    pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
+    return commandList;
+  }
+
+  const commandList = [];
+  if (on && commands.has('setBoostModeDuration')) {
+    commandList.push({ name: 'setBoostModeDuration', parameters: [DHW_BOOST_DURATION_DAYS] });
+  }
+  if (commands.has('setCurrentOperatingMode')) {
+    commandList.push({
+      name: 'setCurrentOperatingMode',
+      parameters: [{ relaunch: on ? 'on' : 'off', absence: 'off' }],
+    });
+  }
+  if (commandList.length === 0) {
+    return null;
+  }
+  pushRefresh(commandList, commands, DHW_REFRESH_BOOST_COMMANDS);
+  pushRefresh(commandList, commands, DHW_REFRESH_HEATING_COMMANDS);
+  return commandList;
+}
+
+/**
+ * Build the Overkiz command(s) to run for a Gladys command on a feature.
+ * Returns `{ name, parameters }`, an ORDERED list of them, or null when no
+ * command applies.
+ *
+ * Water heaters need the list: Overkiz only reports the result of a write once
+ * the matching `refreshXxx` command has been sent, and switching mode on these
+ * appliances means leaving boost and absence behind first.
  *
  * @param {object} device the Overkiz device
  * @param {{ key: string, stateName: string | null }} entry feature entry from `mapDeviceFeatures`
  * @param {number} value the value Gladys asks for
+ * @param {() => Date} [now] injectable clock: the away mode is written as a
+ *   start and an end date, which tests must be able to pin down
  */
-export function buildCommand(device, entry, value) {
+export function buildCommand(device, entry, value, now = () => new Date()) {
   const commands = new Set((device.definition?.commands ?? []).map((c) => c.commandName));
   const { key } = entry;
+
+  if (key === 'mode') {
+    const stateNames = new Set((device.states ?? []).map((s) => s.name));
+    return buildWaterHeaterModeCommands(commands, Number(value), now, dhwDialect(stateNames));
+  }
+
+  if (key === 'boost') {
+    return buildWaterHeaterBoostCommands(commands, Number(value) === 1);
+  }
+
+  if (key === 'target_temperature') {
+    const temperature = Number(value);
+    if (!Number.isFinite(temperature)) {
+      return null;
+    }
+    const name = DHW_SET_TEMPERATURE_COMMANDS.find((candidate) => commands.has(candidate));
+    if (!name) {
+      return null;
+    }
+    const commandList = [{ name, parameters: [temperature] }];
+    // Prefer the refresh matching the command just sent, then any the device
+    // does offer — they track the same setpoint on these appliances.
+    pushRefresh(commandList, commands, [
+      `refresh${name.slice('set'.length)}`,
+      ...DHW_REFRESH_TEMPERATURE_COMMANDS,
+    ]);
+    return commandList;
+  }
 
   if (key === 'position') {
     const open = Math.max(0, Math.min(100, Number(value)));

@@ -34,6 +34,107 @@ export function makeOverkizDevice({
 }
 
 /**
+ * An Atlantic / Thermor domestic hot water tank as the Cozytouch cloud
+ * describes it: eco and absence are two independent switches, the boost is a
+ * remaining duration in days, and the setpoint carries its own range.
+ *
+ * `commands` and `states` REPLACE the defaults rather than merging into them,
+ * like `makeOverkizDevice` — a variant that must lack a state says so.
+ */
+export function makeWaterHeater(overrides = {}) {
+  return makeOverkizDevice({
+    deviceURL: 'io://1111-2222-3333/44444444#1',
+    label: 'Water heater',
+    uiClass: 'WaterHeatingSystem',
+    widgetName: 'DomesticHotWaterProduction',
+    controllableName: 'io:AtlanticDomesticHotWaterProductionV2_CV4E_IOComponent',
+    commands: [
+      'setDHWMode',
+      'setCurrentOperatingMode',
+      'setBoostModeDuration',
+      'setTargetTemperature',
+      'refreshTargetTemperature',
+      'refreshBoostModeDuration',
+      'refreshAwayModeDuration',
+    ],
+    states: {
+      'io:DHWModeState': 'manualEcoActive',
+      'io:AwayModeDurationState': '0',
+      'core:BoostModeDurationState': 0,
+      'core:TargetTemperatureState': 54,
+      'core:MinimalTemperatureManualModeState': 50,
+      'core:MaximalTemperatureManualModeState': 62,
+      'io:MiddleWaterTemperatureState': 48.5,
+      'core:RemainingHotWaterState': 70,
+      'core:HeatingStatusState': 'off',
+    },
+    ...overrides,
+  });
+}
+
+/**
+ * A REAL Atlantic LINEO, captured from a user's Cozytouch account with the
+ * "List the raw devices" action. Kept faithful — including the states that must
+ * be ignored — because it is the appliance the mapping is meant to serve:
+ *
+ * - it speaks the `modbuslink` dialect, not `io`, so every candidate list has
+ *   to reach past its first entry;
+ * - it reports BOTH `core:WaterTargetTemperatureState` and
+ *   `core:TargetDHWTemperatureState`, and no `core:TargetTemperatureState`;
+ * - it has no `setCurrentOperatingMode`: absence and boost are their own
+ *   commands here;
+ * - its refresh commands are NOT the set commands with the verb swapped — it
+ *   takes `setTargetDHWTemperature` but only offers
+ *   `refreshWaterTargetTemperature`.
+ */
+export function makeAtlanticModbuslinkWaterHeater(overrides = {}) {
+  return makeOverkizDevice({
+    deviceURL: 'modbuslink://1537-7989-4054/1#1',
+    label: 'LINEO',
+    uiClass: 'WaterHeatingSystem',
+    widgetName: 'DomesticHotWaterProduction',
+    controllableName: 'modbuslink:AtlanticDomesticHotWaterProductionMBLComponent',
+    commands: [
+      'refreshAbsenceMode',
+      'refreshBoostMode',
+      'refreshDHWMode',
+      'refreshHeatingStatus',
+      'refreshMiddleWaterTemperature',
+      'refreshRemainingHotWater',
+      'refreshWaterTargetTemperature',
+      'setAbsenceEndDate',
+      'setAbsenceMode',
+      'setAbsenceStartDate',
+      'setBoostMode',
+      'setDateTime',
+      'setDHWMode',
+      'setTargetDHWTemperature',
+      'setWaterTargetTemperature',
+    ],
+    states: {
+      'modbuslink:DHWModeState': 'autoMode',
+      'modbuslink:DHWAbsenceModeState': 'off',
+      'modbuslink:DHWBoostModeState': 'off',
+      'core:WaterTargetTemperatureState': 55,
+      'core:TargetDHWTemperatureState': 55,
+      'core:MinimalTemperatureManualModeState': 50,
+      'core:MaximalTemperatureManualModeState': 70,
+      'core:RemainingHotWaterState': 42,
+      // A cumulative counter on this appliance, not a usable V40 volume for an
+      // 80 L tank — the percentage above must win.
+      'core:V40WaterVolumeEstimationState': 10317,
+      'modbuslink:DHWCapacityState': 80,
+      'core:HeatingStatusState': 'off',
+      'modbuslink:MiddleWaterTemperatureState': 41.6,
+      'core:MiddleWaterTemperatureInState': 36.8,
+      'core:ControlWaterTargetTemperatureState': 46,
+      'core:NumberOfShowerRemainingState': 1,
+    },
+    ...overrides,
+  });
+}
+
+/**
  * Minimal stand-in for `gladys.externalIds()`, matching the SDK format.
  */
 export function makeExternalIds(type, platformId) {
