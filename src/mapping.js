@@ -59,6 +59,9 @@ export const STATES = {
   ELECTRIC_POWER_CONSUMPTION: 'core:ElectricPowerConsumptionState',
   ELECTRIC_ENERGY_CONSUMPTION: 'core:ElectricEnergyConsumptionState',
   BATTERY_LEVEL: 'core:BatteryLevelState',
+  BATTERY: 'core:BatteryState',
+  SENSOR_DEFECT: 'core:SensorDefectState',
+  BATTERY_STATUS: 'internal:BatteryStatusState',
   // Domestic hot water
   DHW_MODE: 'io:DHWModeState',
   DHW_MODE_MODBUSLINK: 'modbuslink:DHWModeState',
@@ -131,6 +134,29 @@ const DEPLOYMENT_POSITION_SOURCES = [
 // "fully closed"), so they are dropped.
 const POSITION_MY = 108;
 const POSITION_UNKNOWN = 124;
+
+// --- Batteries ---------------------------------------------------------------
+// Only a minority of battery-powered devices publish a gauge
+// (`core:BatteryLevelState`); the rest answer the same question with a word,
+// under three names depending on the protocol. `core:SensorDefectState` comes
+// first: it is the only one that tells a low battery apart from another sensor
+// defect.
+const BATTERY_LOW_STATES = [STATES.SENSOR_DEFECT, STATES.BATTERY, STATES.BATTERY_STATUS];
+
+// The vocabularies those three states draw from. Anything outside both lists is
+// published as nothing at all: wrongly reporting "battery fine" is the worse of
+// the two silences.
+const BATTERY_LOW_VALUES = new Set(['low', 'verylow', 'critical', 'lowbattery', 'dead']);
+const BATTERY_OK_VALUES = new Set([
+  'full',
+  'normal',
+  'medium',
+  'good',
+  'ok',
+  'nodefect',
+  // A sensor asking for maintenance is not a sensor running out of battery.
+  'maintenancerequired',
+]);
 
 // --- Water heaters -----------------------------------------------------------
 // Overkiz exposes domestic hot water through several incompatible dialects; the
@@ -303,6 +329,7 @@ const FEATURE_NAMES = {
   power: 'Power',
   energy: 'Energy',
   battery: 'Battery',
+  battery_low: 'Low battery',
   mode: 'Mode',
   boost: 'Boost',
   target_temperature: 'Target temperature',
@@ -617,7 +644,7 @@ export function mapDeviceFeatures(device, ids) {
         }),
       });
     }
-    return entries;
+    // fall through: solar and WireFree covers also report a battery below
   }
 
   // --- Lights -----------------------------------------------------------------
@@ -649,7 +676,7 @@ export function mapDeviceFeatures(device, ids) {
         }),
       });
     }
-    return entries;
+    // fall through: battery-powered lights also report a battery below
   }
 
   // --- Water heaters --------------------------------------------------------------
@@ -796,6 +823,25 @@ export function mapDeviceFeatures(device, ids) {
     }
   }
 
+  // A low-battery warning cannot be a `sensorMap` row: that table carries one
+  // state name per feature, whereas the warning is read from the first of three
+  // candidates the device happens to publish. It stands alongside the gauge
+  // rather than replacing it — the threshold is the manufacturer's, and no
+  // percentage tells you where they put it.
+  const batteryLowStateName = BATTERY_LOW_STATES.find((stateName) => states.has(stateName));
+  if (batteryLowStateName) {
+    entries.push({
+      key: 'battery_low',
+      stateName: batteryLowStateName,
+      gladysFeature: feature(ids, 'battery_low', {
+        category: DEVICE_FEATURE_CATEGORIES.BATTERY_LOW,
+        type: DEVICE_FEATURE_TYPES.BATTERY_LOW.BINARY,
+        min: 0,
+        max: 1,
+      }),
+    });
+  }
+
   return entries;
 }
 
@@ -826,6 +872,18 @@ export function stateToGladysValue(entry, rawValue) {
     }
     const lowered = rawValue.trim().toLowerCase();
     return lowered === 'on' || lowered === 'heating' ? 1 : 0;
+  }
+  // `core:SensorDefectState`, `core:BatteryState` and `internal:BatteryStatusState`
+  // all answer "is this battery running out", each with its own words.
+  if (key === 'battery_low') {
+    if (typeof rawValue !== 'string') {
+      return null;
+    }
+    const lowered = rawValue.trim().toLowerCase();
+    if (BATTERY_LOW_VALUES.has(lowered)) {
+      return 1;
+    }
+    return BATTERY_OK_VALUES.has(lowered) ? 0 : null;
   }
   if (typeof rawValue === 'string') {
     const lowered = rawValue.toLowerCase();

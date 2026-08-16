@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.2.1
+
+### Fixed
+
+- **Covers and lights report their battery.** `core:BatteryLevelState` had been
+  mapped since the first release, but `mapDeviceFeatures` returned from the
+  cover and light branches before ever reaching the sensor table — so the
+  battery was read for every device family EXCEPT the two that actually run on
+  one. Solar shutters, WireFree blinds and battery-powered lights now expose it
+  like any sensor does. Both branches now fall through, as the water heater and
+  plug branches already did, so those devices also pick up any other sensor
+  state they publish.
+
+  Gladys does not add features to a device that already exists: update the
+  affected devices from the discovery screen to see the battery appear.
+
+### Added
+
+- **A low-battery warning for the devices that have no gauge.** Most IO and RTS
+  sensors never publish a percentage — they answer the same question with a
+  word, under three different state names: `core:SensorDefectState`
+  (`lowBattery`), `core:BatteryState` (`low`, `verylow`) and
+  `internal:BatteryStatusState`. The first one the device reports feeds a Gladys
+  `battery-low` binary feature, which is what the Home Assistant overkiz
+  component does with the same states.
+
+  It stands alongside the percentage rather than replacing it: a device
+  reporting both gets both, because the warning threshold is the manufacturer's
+  and no percentage tells you where they put it. A status word outside the known
+  vocabulary publishes nothing at all — wrongly reporting a healthy battery is
+  the worse of the two silences.
+
 ## 1.2.0
 
 ### Added

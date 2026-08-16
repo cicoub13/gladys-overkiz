@@ -58,6 +58,81 @@ test('a pod is ignored', () => {
   assert.deepEqual(mapDeviceFeatures(device, ids), []);
 });
 
+// Covers and lights used to return before the sensor table, so the battery of a
+// solar or WireFree device was mapped for every family EXCEPT the two that
+// actually run on one.
+test('a battery-powered cover reports its battery alongside its position', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: { 'core:ClosureState': 30, 'core:BatteryLevelState': 87 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  const battery = entries.find((e) => e.key === 'battery');
+  assert.ok(entries.some((e) => e.key === 'position'));
+  assert.equal(battery.stateName, 'core:BatteryLevelState');
+  assert.equal(battery.gladysFeature.category, 'battery');
+  assert.equal(battery.gladysFeature.type, 'integer');
+  assert.equal(battery.gladysFeature.unit, 'percent');
+});
+
+test('a battery-powered light reports its battery alongside its switch', () => {
+  const device = makeDevice({
+    uiClass: 'Light',
+    commands: ['on', 'off'],
+    states: { 'core:OnOffState': 'on', 'core:BatteryLevelState': 42 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const keys = mapDeviceFeatures(device, ids)
+    .map((e) => e.key)
+    .sort();
+  assert.deepEqual(keys, ['battery', 'binary']);
+});
+
+test('a device reporting a battery status gets a low-battery feature', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close'],
+    states: { 'core:BatteryState': 'low' },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entry = mapDeviceFeatures(device, ids).find((e) => e.key === 'battery_low');
+  assert.equal(entry.stateName, 'core:BatteryState');
+  assert.equal(entry.gladysFeature.category, 'battery-low');
+  assert.equal(entry.gladysFeature.type, 'binary');
+  assert.equal(entry.gladysFeature.read_only, true);
+});
+
+test('the sensor defect state wins over the other battery status names', () => {
+  const device = makeDevice({
+    uiClass: 'OccupancySensor',
+    states: {
+      'core:BatteryState': 'normal',
+      'core:SensorDefectState': 'lowBattery',
+      'internal:BatteryStatusState': 'full',
+    },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids).filter((e) => e.key === 'battery_low');
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].stateName, 'core:SensorDefectState');
+});
+
+// The gauge and the warning are two different facts: the threshold is the
+// manufacturer's, and no percentage says where they put it.
+test('a gauge and a low-battery warning coexist', () => {
+  const device = makeDevice({
+    uiClass: 'ContactSensor',
+    states: { 'core:BatteryLevelState': 15, 'core:SensorDefectState': 'lowBattery' },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const keys = mapDeviceFeatures(device, ids)
+    .map((e) => e.key)
+    .sort();
+  assert.deepEqual(keys, ['battery', 'battery_low']);
+});
+
 const CLOSURE_POSITION = { key: 'position', stateName: 'core:ClosureState', invert: true };
 const DEPLOYMENT_POSITION = { key: 'position', stateName: 'core:DeploymentState', invert: false };
 
@@ -95,6 +170,25 @@ test('stateToGladysValue returns null for values it cannot map', () => {
   assert.equal(stateToGladysValue({ key: 'temperature' }, 'unavailable'), null);
   assert.equal(stateToGladysValue({ key: 'temperature' }, { some: 'object' }), null);
   assert.equal(stateToGladysValue({ key: 'temperature' }, '21.5'), 21.5);
+});
+
+test('stateToGladysValue reads the three battery status vocabularies', () => {
+  const lowBattery = (raw) => stateToGladysValue({ key: 'battery_low' }, raw);
+  assert.equal(lowBattery('lowBattery'), 1);
+  assert.equal(lowBattery('low'), 1);
+  assert.equal(lowBattery('verylow'), 1);
+  assert.equal(lowBattery('dead'), 1);
+  assert.equal(lowBattery('full'), 0);
+  assert.equal(lowBattery('normal'), 0);
+  assert.equal(lowBattery('noDefect'), 0);
+  // A sensor asking for maintenance is not a sensor running out of battery.
+  assert.equal(lowBattery('maintenanceRequired'), 0);
+});
+
+test('an unknown battery word publishes nothing rather than "battery fine"', () => {
+  assert.equal(stateToGladysValue({ key: 'battery_low' }, 'somethingElse'), null);
+  assert.equal(stateToGladysValue({ key: 'battery_low' }, 42), null);
+  assert.equal(stateToGladysValue({ key: 'battery_low' }, null), null);
 });
 
 test('buildCommand translates the Gladys position to an Overkiz closure', () => {
