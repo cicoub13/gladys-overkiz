@@ -169,3 +169,57 @@ test('execute accepts a single command or an ordered list', async () => {
     ],
   );
 });
+
+test('the account logger is used, and handed to overkiz-client itself', async () => {
+  // Three sessions write to one log: a line that does not say which account it
+  // belongs to is unusable when a user pastes it in a bug report — and
+  // `overkiz-client` writes its own warnings and errors through this logger.
+  const lines = [];
+  const logger = {
+    debug: (line) => lines.push(`debug ${line}`),
+    info: (line) => lines.push(`info ${line}`),
+    warn: (line) => lines.push(`warn ${line}`),
+    error: (line) => lines.push(`error ${line}`),
+  };
+  const client = makeFakeClient({ devices: { 'io://1/1': makeFakeDevice('io://1/1') } });
+  let clientLogger = null;
+  const overkiz = new Overkiz({
+    logger,
+    createClient: (config, injected) => {
+      clientLogger = injected;
+      return client;
+    },
+  });
+
+  await overkiz.start(CONFIG);
+
+  assert.equal(clientLogger, logger, 'overkiz-client logs through the account logger');
+  assert.deepEqual(lines, ['info Fetched 1 Overkiz devices']);
+});
+
+test('the link going up or down is reported once, by the account', async () => {
+  const client = makeFakeClient();
+  const lines = [];
+  const overkiz = new Overkiz({
+    createClient: () => client,
+    logger: {
+      debug: (line) => lines.push(line),
+      info: (line) => lines.push(line),
+      warn: (line) => lines.push(line),
+      error: (line) => lines.push(line),
+    },
+  });
+  const changes = [];
+  overkiz.onConnectionChange = (connected) => changes.push(connected);
+
+  await overkiz.start(CONFIG);
+  client.listeners.connect();
+  client.listeners.disconnect();
+
+  assert.deepEqual(changes, [true, false]);
+  assert.deepEqual(
+    lines.filter((line) => /connected/i.test(line)),
+    [],
+    'the wrapper does not log the transition its owner already logs',
+  );
+});

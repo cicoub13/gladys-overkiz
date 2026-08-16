@@ -331,3 +331,98 @@ test('the dump labels every device with the account it came from', async () => {
   assert.match(message.fr, /2 appareil\(s\)/);
   assert.match(message.fr, /Compte 1 \(Somfy Europe\) : 1/);
 });
+
+// --- regressions reported by users on a real two-account setup ---------------
+
+test('the SDK external id helpers are called on the client, never detached', async () => {
+  // `gladys.externalIds` is a method reaching `this.externalId`. Handing the
+  // bare function to an account made EVERY device mapping throw
+  // `this.externalId is not a function` — reported as "connection failed", with
+  // an empty Discovery screen behind it, on both accounts at once.
+  const { gladys, handlers } = setupTwoAccounts();
+  let sawDetachedCall = false;
+  const { externalIds } = gladys;
+  gladys.externalIds = function trackThis(type, platformId) {
+    if (this !== gladys) {
+      sawDetachedCall = true;
+    }
+    return externalIds.call(gladys, type, platformId);
+  };
+
+  await handlers.gladysConnected();
+
+  assert.ok(!sawDetachedCall, 'externalIds must keep its `this`');
+  assert.equal(gladys.calls.discovered.at(-1).length, 2);
+  assert.deepEqual(
+    gladys.calls.connectionStatus.at(-1),
+    { connected: true, message: undefined },
+    'both accounts are connected',
+  );
+});
+
+test('a device the mapping chokes on costs only that device', async () => {
+  const errors = [];
+  const poison = makeCover('io://1111-1111-1111/2');
+  // `buildDiscoveredDevice` reads the definition of every device it is given.
+  Object.defineProperty(poison, 'definition', {
+    get() {
+      throw new TypeError('this.externalId is not a function');
+    },
+  });
+  const { gladys, handlers } = setup({
+    config: makeMultiConfig({ 1: SOMFY, 2: COZYTOUCH }),
+    accounts: {
+      1: { devices: [makeCover('io://1111-1111-1111/1'), poison] },
+      2: { devices: [makeSwitch('io://2222-2222-2222/2')] },
+    },
+    logger: { ...logger, error: (line) => errors.push(line) },
+  });
+
+  await handlers.gladysConnected();
+
+  assert.deepEqual(
+    gladys.calls.discovered.at(-1).map((device) => device.name),
+    ['Cover', 'Switch'],
+    'the healthy devices of both accounts are still discovered',
+  );
+  assert.equal(
+    gladys.calls.connectionStatus.at(-1).connected,
+    true,
+    'one unmappable device is not a connection failure',
+  );
+  assert.ok(
+    errors.some((line) => line.includes('[account 1]') && line.includes('skipping it')),
+    `the skipped device is logged against its account, got ${JSON.stringify(errors)}`,
+  );
+});
+
+test('each account gets a logger prefixed with its slot for its Overkiz session', async () => {
+  const created = [];
+  const gladys = makeFakeGladys({ config: makeMultiConfig({ 1: SOMFY, 2: COZYTOUCH }) });
+  const pool = makeFakeOverkizPool({
+    1: { devices: [makeCover('io://1111-1111-1111/1')] },
+    2: { devices: [makeSwitch('io://2222-2222-2222/2')] },
+  });
+  const lines = [];
+  const handlers = createHandlers({
+    gladys,
+    createOverkiz: (account, accountLogger) => {
+      created.push({ slot: account.slot, accountLogger });
+      return pool.get(account.slot);
+    },
+    logger: { ...logger, info: (line) => lines.push(line) },
+    scheduleTimer: makeFakeTimer(),
+  });
+
+  await handlers.gladysConnected();
+
+  assert.deepEqual(
+    created.map((entry) => entry.slot),
+    [1, 2],
+  );
+  created[1].accountLogger.info('Fetched 7 Overkiz devices');
+  assert.ok(
+    lines.includes('[account 2] Fetched 7 Overkiz devices'),
+    `session lines carry their slot, got ${JSON.stringify(lines)}`,
+  );
+});

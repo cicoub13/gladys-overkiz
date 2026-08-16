@@ -27,6 +27,20 @@
 
 ### Fixed
 
+- **Every account failed with `this.externalId is not a function`, discovering
+  nothing.** The SDK helper that builds external ids is a method reaching
+  `this.externalId`, and it was handed to each account detached from the client,
+  so the first device it mapped threw — reported as a connection failure on
+  every configured account, with an empty Discovery screen behind it. The test
+  double now mirrors the SDK and fails the same way, so a detached helper can no
+  longer pass the suite.
+- A device the mapping cannot digest no longer takes its whole account down: it
+  is logged with its device URL, skipped, and the other devices of the account
+  are discovered as usual.
+- Lines written by the Overkiz session — including those `overkiz-client`
+  writes itself — now carry the account slot they come from instead of a shared
+  `[overkiz]` prefix, and the link going up or down is logged once rather than
+  twice.
 - Concurrent state publishes could each clear the 300-per-minute budget check
   before either recorded its own consumption, overshooting the window. Publishes
   are now serialized through a single integration-wide budget.

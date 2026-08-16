@@ -116,17 +116,24 @@ export function createHandlers({
   // --- account lifecycle ------------------------------------------------------
 
   function makeAccount(accountConfig) {
+    // Everything this account logs carries its slot, the session included:
+    // three sessions writing to one log is unreadable otherwise.
+    const accountLogger = prefixLogger(logger, `[account ${accountConfig.slot}]`);
     let overkiz = overkizById.get(accountConfig.id);
     if (!overkiz) {
-      overkiz = createOverkiz(accountConfig);
+      overkiz = createOverkiz(accountConfig, accountLogger);
       overkizById.set(accountConfig.id, overkiz);
     }
     return createAccount({
       config: accountConfig,
-      externalIds: gladys.externalIds,
+      // Bound rather than handed over as-is: `externalIds` is a METHOD of the
+      // SDK client and reaches `this.externalId` internally, so a detached
+      // reference throws `this.externalId is not a function` on the first
+      // device it maps — and takes the whole account down with it.
+      externalIds: (type, platformId) => gladys.externalIds(type, platformId),
       overkiz,
       publisher,
-      logger: prefixLogger(logger, `[account ${accountConfig.slot}]`),
+      logger: accountLogger,
       scheduleTimer,
       onRetry: () => connectAccount(findAccount(accountConfig.id)),
       onLinkChange: () => {

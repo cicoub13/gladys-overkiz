@@ -75,7 +75,20 @@ export function createAccount({
     mappedDevices = new Map();
     deviceUrlByExternalId = new Map();
     for (const device of devices) {
-      const mapped = buildDiscoveredDevice({ externalIds }, device);
+      // A single device the mapping chokes on must not cost the user every
+      // other device of the account: without this, one throw here surfaces as
+      // "connection failed" and the account discovers nothing at all.
+      let mapped;
+      try {
+        mapped = buildDiscoveredDevice({ externalIds }, device);
+      } catch (err) {
+        // Only plain fields here: whatever made the mapping throw may well be
+        // the device description itself, and a throwing error handler would
+        // take down the very account this is meant to keep alive. Use the dump
+        // action to see the rest of what the cloud says about it.
+        logger.error(`Failed to map ${device.label} (${device.deviceURL}), skipping it`, err);
+        continue;
+      }
       if (mapped) {
         mappedDevices.set(device.deviceURL, mapped);
         deviceUrlByExternalId.set(mapped.device.external_id, device.deviceURL);

@@ -10,12 +10,12 @@
 import { Client as OverkizClient, Action, Command, Execution } from 'overkiz-client';
 import { createLogger } from '@gladysassistant/integration-sdk';
 
-const log = createLogger({ name: 'overkiz' });
+const defaultLogger = createLogger({ name: 'overkiz' });
 
-function defaultCreateClient(config) {
+function defaultCreateClient(config, logger) {
   // `refreshPeriod` is expressed in MINUTES by overkiz-client (it multiplies by
   // 60 internally); 30 minutes is its own recommended floor.
-  return new OverkizClient(log, {
+  return new OverkizClient(logger, {
     service: config.server,
     user: config.username,
     password: config.password,
@@ -26,11 +26,16 @@ function defaultCreateClient(config) {
 
 export class Overkiz {
   /**
-   * @param {{ createClient?: (config: object) => object }} [options] `createClient`
-   *   is injectable so the lifecycle can be tested without an Overkiz account.
+   * @param {object} [options]
+   * @param {(config: object, logger: object) => object} [options.createClient]
+   *   Injectable so the lifecycle can be tested without an Overkiz account.
+   * @param {object} [options.logger] Given by the account that owns this
+   *   session, so its lines — and those `overkiz-client` writes itself — say
+   *   which of the configured accounts they come from.
    */
-  constructor({ createClient = defaultCreateClient } = {}) {
+  constructor({ createClient = defaultCreateClient, logger = defaultLogger } = {}) {
     this.createClient = createClient;
+    this.logger = logger;
     this.client = null;
     // Only true once the first API call succeeded: a client that failed to
     // authenticate must never be reported as connected.
@@ -50,15 +55,11 @@ export class Overkiz {
    */
   async start(config) {
     this.stop();
-    const client = this.createClient(config);
-    client.on('connect', () => {
-      log.info('Connected to the Overkiz API');
-      this.onConnectionChange?.(true);
-    });
-    client.on('disconnect', () => {
-      log.warn('Disconnected from the Overkiz API');
-      this.onConnectionChange?.(false);
-    });
+    const client = this.createClient(config, this.logger);
+    // The link going up or down is reported by whoever owns the account, not
+    // here: logging it on both levels printed every transition twice.
+    client.on('connect', () => this.onConnectionChange?.(true));
+    client.on('disconnect', () => this.onConnectionChange?.(false));
     // Own the client right away so `stop()` can always tear it down, but stay
     // "not connected" until the first call actually goes through.
     this.client = client;
@@ -74,7 +75,7 @@ export class Overkiz {
 
     this.ready = true;
     const devices = this.syncDevices();
-    log.info(`Fetched ${devices.length} Overkiz devices`);
+    this.logger.info(`Fetched ${devices.length} Overkiz devices`);
     return devices;
   }
 
@@ -108,7 +109,7 @@ export class Overkiz {
       this.client.setRefreshTaskPeriod(0);
       this.client.setPollingTaskPeriod(0);
     } catch (err) {
-      log.debug('Failed to stop polling tasks', err);
+      this.logger.debug('Failed to stop polling tasks', err);
     }
     this.client.removeAllListeners();
     for (const device of this.devicesByUrl.values()) {

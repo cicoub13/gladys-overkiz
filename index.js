@@ -16,8 +16,13 @@ import { Overkiz } from './src/overkiz.js';
 
 const gladys = new GladysIntegration();
 // A factory rather than an instance: the user can configure several Overkiz
-// accounts, each of which owns its own session.
-const handlers = createHandlers({ gladys, createOverkiz: () => new Overkiz(), logger });
+// accounts, each of which owns its own session — and its own logger, so the
+// lines of three sessions stay tellable apart.
+const handlers = createHandlers({
+  gladys,
+  createOverkiz: (account, accountLogger) => new Overkiz({ logger: accountLogger }),
+  logger,
+});
 
 // No `onPoll`: the devices are published with `should_poll: false` because the
 // Overkiz event poller already pushes every change.

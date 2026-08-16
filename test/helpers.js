@@ -135,13 +135,32 @@ export function makeAtlanticModbuslinkWaterHeater(overrides = {}) {
 }
 
 /**
- * Minimal stand-in for `gladys.externalIds()`, matching the SDK format.
+ * Stand-in for the external id helpers of the SDK client.
+ *
+ * Kept METHOD-shaped, and `externalIds` deliberately reaches `this.externalId`
+ * exactly like `GladysIntegration` does: a caller that passes `gladys.externalIds`
+ * around detached from its object gets `this.externalId is not a function` here
+ * too, instead of the fake quietly working where production crashes.
+ */
+export const externalIdHelpers = {
+  externalId(suffix) {
+    return `overkiz:${suffix}`;
+  },
+  externalIds(type, platformId) {
+    const device = this.externalId(`${type}:${platformId}`);
+    return {
+      device,
+      feature: (key) => `${device}:${key}`,
+    };
+  },
+};
+
+/**
+ * Standalone `externalIds`, for the tests that only need to build ids and have
+ * no SDK client at hand.
  */
 export function makeExternalIds(type, platformId) {
-  return {
-    device: `overkiz:${type}:${platformId}`,
-    feature: (key) => `overkiz:${type}:${platformId}:${key}`,
-  };
+  return externalIdHelpers.externalIds(type, platformId);
 }
 
 /**
@@ -158,7 +177,7 @@ export function makeFakeGladys({ config = {} } = {}) {
     config,
     /** Set to an Error to make the next `publishStates` calls reject. */
     publishError: null,
-    externalIds: makeExternalIds,
+    ...externalIdHelpers,
     async getConfig() {
       return this.config;
     },
