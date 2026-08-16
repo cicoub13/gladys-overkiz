@@ -4,6 +4,8 @@ Overkiz external integration for [Gladys Assistant](https://gladysassistant.com)
 
 Built on the [Gladys external integration platform](https://gladysassistant.com/docs/dev/external-integrations/) and the [`overkiz-client`](https://github.com/dubocr/overkiz-client) library, with device mappings inspired by the [Home Assistant Overkiz component](https://github.com/home-assistant/core/tree/dev/homeassistant/components/overkiz).
 
+Up to **3 Overkiz accounts** can run side by side — brands keep separate accounts on separate servers, so a Somfy hub for the covers and an Atlantic Cozytouch account for a Thermor water heater is a common setup. Gladys installs an integration once (its selector is derived from the repository, so a second install is refused), which is why the accounts live inside it rather than in several instances.
+
 ## Supported devices
 
 | Overkiz device                                                                                       | Gladys features                                                   |
@@ -36,10 +38,13 @@ The **List the raw devices** action writes the raw description of every Overkiz 
 ## Project layout
 
 - `index.js` — SDK wiring only.
-- `src/handlers.js` — orchestration: connection lifecycle, discovery, state publishing, command routing. Collaborators and timers are injected, so it is tested without network or SDK.
-- `src/overkiz.js` — thin wrapper around `overkiz-client` (auth, devices, executions, event polling).
+- `src/handlers.js` — the hub: reconciles the configured accounts with the live sessions, publishes the union of their devices, routes commands. Collaborators and timers are injected, so it is tested without network or SDK.
+- `src/account.js` — one Overkiz account: its session, its device mapping, its reconnection backoff. It never calls `gladys` — that is what keeps two accounts from overwriting each other's discovery list or status.
+- `src/publisher.js` — the integration-wide state budget: 100 states per request, 300 per minute, serialized so concurrent pollers cannot overshoot it.
+- `src/status.js` — folds the per-account states into the single connection status the host API exposes.
+- `src/overkiz.js` — thin wrapper around `overkiz-client` (auth, devices, executions, event polling). One instance per account.
 - `src/mapping.js` — Overkiz uiClass/state/command ↔ Gladys category/feature/command mapping.
-- `src/config.js` — configuration defaults, normalization and bounds.
+- `src/config.js` — configuration defaults, normalization and bounds. The flat numbered slots of the form (`server`, `server_2`, `server_3`...) are read into a canonical account list here, and nowhere else.
 - `src/errors.js` — classifies Overkiz failures (credentials / locked / unreachable) and decides what is worth retrying.
 - `gladys-assistant-integration.json` — the integration manifest (config schema, actions).
 - `docs/en.md`, `docs/fr.md` — the user documentation displayed in the Gladys store.

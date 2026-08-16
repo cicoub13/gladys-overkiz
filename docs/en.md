@@ -33,9 +33,24 @@ Device states are refreshed in near real time through the Overkiz event API, so 
 5. Use the **Test the connection** button to verify the credentials.
 6. Open the **Discovery** tab, run a scan, and create the devices you want in Gladys.
 
+### Several Overkiz accounts
+
+Overkiz powers hubs from several brands, and each brand keeps its own account on its own server. If
+you own more than one — a Somfy hub for your covers and an Atlantic Cozytouch account for a Thermor
+water heater, say — fill in the **Overkiz account 2** section (and 3 if needed) with its own server,
+email and password. The three accounts run side by side and their devices show up in the same
+Discovery list.
+
+To stop using an account, clear its **email** and save. Avoid picking the blank entry in the
+**Server** list: it is not a valid value and the save is rejected.
+
+The **event polling period** is a single setting shared by every account.
+
 ## Troubleshooting
 
 - **Connection failed**: double-check the server selection and your credentials by logging into the vendor's app. Somfy may temporarily lock the account after too many failed attempts.
+- **Only one of my accounts connects**: the connection status turns red as soon as one configured account fails, and names the one at fault — the others keep working normally. **Test the connection** reports each account separately.
+- **A second account's devices disappeared from Discovery**: an account that is momentarily disconnected stops offering its devices there; the ones you already created in Gladys are untouched, and the rest come back on the next connection.
 - **A device is missing**: only device types listed above are supported. Run a new scan from the Discovery tab after adding a device to your hub. If your device should be supported but is not, use the **List the raw devices** action: it writes what Overkiz says about each of your devices to the integration logs, which is what a mapping needs. The dump carries your hub serial number — anonymize it before sharing.
 - **States seem stale**: the event polling period can be lowered in the Configuration tab (10 s minimum). Keep in mind the Overkiz cloud rate-limits aggressive polling.
 - **My water heater offers fewer modes than the appliance does**: only the modes your appliance actually exposes are offered. A boost is a control of its own rather than a mode, because that is how these appliances report it.

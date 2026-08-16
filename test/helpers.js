@@ -181,6 +181,47 @@ export function makeFakeGladys({ config = {} } = {}) {
 }
 
 /**
+ * Collects the timers the code under test schedules so tests can fire them on
+ * demand instead of waiting a real minute.
+ */
+export function makeFakeTimer() {
+  const pending = [];
+  const scheduleTimer = (fn) => {
+    const entry = { fn, cancelled: false };
+    pending.push(entry);
+    return () => {
+      entry.cancelled = true;
+    };
+  };
+  scheduleTimer.pending = pending;
+  scheduleTimer.runAll = async () => {
+    for (const entry of pending.splice(0)) {
+      if (!entry.cancelled) {
+        await entry.fn();
+      }
+    }
+  };
+  return scheduleTimer;
+}
+
+/**
+ * Controllable clock. `sleep` advances it, so rate-limit pauses are observable
+ * without the test actually waiting.
+ */
+export function makeFakeClock() {
+  let current = 1_000_000;
+  const sleeps = [];
+  return {
+    sleeps,
+    now: () => current,
+    sleep: async (delayMs) => {
+      sleeps.push(delayMs);
+      current += delayMs;
+    },
+  };
+}
+
+/**
  * Fake `Overkiz` wrapper. `devices` is the list returned by `start()`; the
  * handlers reach back into it through `getDevice()`.
  */
@@ -216,4 +257,42 @@ export function makeFakeOverkiz({ devices = [], startError = null } = {}) {
       this.connected = false;
     },
   };
+}
+
+/**
+ * A fake `Overkiz` per account slot, handed out by the factory the handlers
+ * take. The fakes are built up front so a test can hold a reference to the
+ * slot 3 wrapper before the account it belongs to even exists.
+ *
+ * @param {Record<number, object>} specsBySlot options for `makeFakeOverkiz`
+ */
+export function makeFakeOverkizPool(specsBySlot = {}) {
+  const bySlot = new Map();
+  for (const slot of [1, 2, 3]) {
+    bySlot.set(slot, makeFakeOverkiz(specsBySlot[slot] ?? {}));
+  }
+  return {
+    bySlot,
+    get: (slot) => bySlot.get(slot),
+    createOverkiz: ({ slot }) => bySlot.get(slot),
+  };
+}
+
+/**
+ * Build the FLAT config the form produces, from one description per slot:
+ * `makeMultiConfig({ 1: {...}, 2: { server: 'cozytouch', ... } })`.
+ */
+export function makeMultiConfig(slots = {}) {
+  const config = {};
+  for (const [slot, account] of Object.entries(slots)) {
+    if (slot === 'polling_period') {
+      config.polling_period = account;
+      continue;
+    }
+    const suffix = slot === '1' ? '' : `_${slot}`;
+    for (const [field, value] of Object.entries(account)) {
+      config[`${field}${suffix}`] = value;
+    }
+  }
+  return config;
 }

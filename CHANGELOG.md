@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Up to 3 Overkiz accounts at once.** Overkiz-based brands each keep their own
+  account on their own server, so a Somfy hub for the covers and an Atlantic
+  Cozytouch account for a Thermor water heater used to be mutually exclusive.
+  The Configuration screen now offers two extra account sections; leave them
+  empty to keep a single account. Gladys refuses to install the same store
+  integration twice (its selector is derived from the repository), so the
+  accounts live inside the integration rather than in several instances.
+  - The Discovery screen shows the union of every account's devices.
+  - The connection status turns red as soon as one configured account fails and
+    names it; the others keep working.
+  - **Test the connection** and **List the raw devices** cover every account,
+    and the dump labels each device with the account it came from.
+  - The event polling period stays a single setting, shared by all accounts.
+
+### Changed
+
+- Existing configurations are untouched: account 1 keeps the `server`,
+  `username` and `password` keys of earlier versions, and device `external_id`s
+  are unchanged — they are derived from the Overkiz device URL, which already
+  carries the hub serial number, and never from the account.
+
+### Fixed
+
+- Concurrent state publishes could each clear the 300-per-minute budget check
+  before either recorded its own consumption, overshooting the window. Publishes
+  are now serialized through a single integration-wide budget.
+- A dropped Overkiz link left the session reported as connected until the next
+  failed call.
+
 ## 1.2.0
 
 ### Added

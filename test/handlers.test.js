@@ -7,7 +7,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createHandlers } from '../src/handlers.js';
-import { makeFakeGladys, makeFakeOverkiz, makeOverkizDevice, makeWaterHeater } from './helpers.js';
+import {
+  makeFakeGladys,
+  makeFakeOverkizPool,
+  makeFakeTimer,
+  makeFakeClock,
+  makeOverkizDevice,
+  makeWaterHeater,
+} from './helpers.js';
 
 const logger = createLogger({ level: 'silent' });
 
@@ -21,66 +28,27 @@ function makeLight(states = { 'core:OnOffState': 'off', 'core:LightIntensityStat
   });
 }
 
-/**
- * Collects the timers the handlers schedule so tests can fire them on demand
- * instead of waiting a real minute.
- */
-function makeFakeTimer() {
-  const pending = [];
-  const scheduleTimer = (fn) => {
-    const entry = { fn, cancelled: false };
-    pending.push(entry);
-    return () => {
-      entry.cancelled = true;
-    };
-  };
-  scheduleTimer.pending = pending;
-  scheduleTimer.runAll = async () => {
-    for (const entry of pending.splice(0)) {
-      if (!entry.cancelled) {
-        await entry.fn();
-      }
-    }
-  };
-  return scheduleTimer;
-}
-
-/**
- * Controllable clock. `sleep` advances it, so rate-limit pauses are observable
- * without the test actually waiting.
- */
-function makeFakeClock() {
-  let current = 1_000_000;
-  const sleeps = [];
-  return {
-    sleeps,
-    now: () => current,
-    sleep: async (delayMs) => {
-      sleeps.push(delayMs);
-      current += delayMs;
-    },
-  };
-}
-
 function setup({
   config = VALID_CONFIG,
   devices = [makeLight()],
   startError = null,
+  // Extra slots, as `makeFakeOverkiz` options: `{ 2: { devices: [...] } }`.
+  accounts = {},
   logger: loggerOverride = logger,
 } = {}) {
   const gladys = makeFakeGladys({ config });
-  const overkiz = makeFakeOverkiz({ devices, startError });
+  const pool = makeFakeOverkizPool({ 1: { devices, startError }, ...accounts });
   const scheduleTimer = makeFakeTimer();
   const clock = makeFakeClock();
   const handlers = createHandlers({
     gladys,
-    overkiz,
+    createOverkiz: pool.createOverkiz,
     logger: loggerOverride,
     scheduleTimer,
     now: clock.now,
     sleep: clock.sleep,
   });
-  return { gladys, overkiz, handlers, timer: scheduleTimer, clock };
+  return { gladys, overkiz: pool.get(1), pool, handlers, timer: scheduleTimer, clock };
 }
 
 test('an incomplete configuration reports a status instead of connecting', async () => {
@@ -296,7 +264,10 @@ test('a scan reconnects when the Overkiz client is down', async () => {
 });
 
 test('losing the Overkiz connection is reported to Gladys', async () => {
-  const { gladys, overkiz } = setup();
+  const { gladys, overkiz, handlers } = setup();
+  // The callback belongs to an account, which only exists once the
+  // configuration has been read.
+  await handlers.gladysConnected();
 
   overkiz.onConnectionChange(false);
 
@@ -651,10 +622,10 @@ test('the dump action asks for a connection first', async () => {
 test('the dump action writes every device to the logs', async () => {
   const lines = [];
   const gladys = makeFakeGladys({ config: VALID_CONFIG });
-  const overkiz = makeFakeOverkiz({ devices: [makeWaterHeater()] });
+  const pool = makeFakeOverkizPool({ 1: { devices: [makeWaterHeater()] } });
   const handlers = createHandlers({
     gladys,
-    overkiz,
+    createOverkiz: pool.createOverkiz,
     logger: { ...logger, info: (line) => lines.push(line) },
     scheduleTimer: makeFakeTimer(),
   });

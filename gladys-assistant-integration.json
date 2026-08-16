@@ -3,8 +3,8 @@
   "type": "device",
   "name": "Overkiz",
   "description": {
-    "en": "Control your Overkiz devices (Somfy TaHoma, Connexoon, Cozytouch...).",
-    "fr": "Contrôlez vos appareils Overkiz (Somfy TaHoma, Connexoon, Cozytouch...)."
+    "en": "Control your Overkiz devices (Somfy TaHoma, Connexoon, Cozytouch...), up to 3 accounts.",
+    "fr": "Contrôlez vos appareils Overkiz (Somfy TaHoma, Connexoon, Cozytouch...), jusqu'à 3 comptes."
   },
   "version": "1.2.0",
   "docker_image": "ghcr.io/cicoub13/gladys-overkiz:1.2.0",
@@ -15,12 +15,12 @@
       "key": "intro",
       "type": "section",
       "label": {
-        "en": "Overkiz account",
-        "fr": "Compte Overkiz"
+        "en": "Overkiz account 1",
+        "fr": "Compte Overkiz 1"
       },
       "description": {
-        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Covers, lights, switches, sensors and water heaters are supported; heating devices are not mapped yet.",
-        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Les volets, lampes, interrupteurs, capteurs et chauffe-eau sont supportés ; les appareils de chauffage ne le sont pas encore."
+        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Up to 3 accounts can run side by side — a Somfy hub for your covers and a Cozytouch account for your water heater, for instance. Covers, lights, switches, sensors and water heaters are supported; heating devices are not mapped yet.",
+        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Jusqu'à 3 comptes peuvent fonctionner en parallèle — une box Somfy pour vos volets et un compte Cozytouch pour votre chauffe-eau, par exemple. Les volets, lampes, interrupteurs, capteurs et chauffe-eau sont supportés ; les appareils de chauffage ne le sont pas encore."
       },
       "links": [
         {
@@ -116,6 +116,204 @@
       "required": true
     },
     {
+      "key": "account_2_intro",
+      "type": "section",
+      "label": {
+        "en": "Overkiz account 2 (optional)",
+        "fr": "Compte Overkiz 2 (optionnel)"
+      },
+      "description": {
+        "en": "Leave the email and the password empty if you have a single Overkiz account. Fill them in to add a second hub or a second provider — for example an Atlantic Cozytouch account for a water heater, next to a Somfy hub for your covers. To disable this account later, clear the email.",
+        "fr": "Laissez l'email et le mot de passe vides si vous n'avez qu'un seul compte Overkiz. Renseignez-les pour ajouter une deuxième box ou un deuxième fournisseur — par exemple un compte Atlantic Cozytouch pour un chauffe-eau, à côté d'une box Somfy pour vos volets. Pour désactiver ce compte plus tard, videz l'email."
+      }
+    },
+    {
+      "key": "server_2",
+      "type": "select",
+      "label": {
+        "en": "Server (hub type)",
+        "fr": "Serveur (type de box)"
+      },
+      "required": false,
+      "default": "somfy_europe",
+      "options": [
+        {
+          "value": "somfy_europe",
+          "label": {
+            "en": "Somfy Europe (TaHoma, Switch, Connexoon IO)",
+            "fr": "Somfy Europe (TaHoma, Switch, Connexoon IO)"
+          }
+        },
+        {
+          "value": "somfy_australia",
+          "label": {
+            "en": "Somfy Australia / Oceania (Connexoon RTS)",
+            "fr": "Somfy Australie / Océanie (Connexoon RTS)"
+          }
+        },
+        {
+          "value": "somfy_north_america",
+          "label": {
+            "en": "Somfy North America",
+            "fr": "Somfy Amérique du Nord"
+          }
+        },
+        {
+          "value": "cozytouch",
+          "label": {
+            "en": "Atlantic Cozytouch / Thermor / Sauter",
+            "fr": "Atlantic Cozytouch / Thermor / Sauter"
+          }
+        },
+        {
+          "value": "flexom",
+          "label": {
+            "en": "Bouygues Flexom",
+            "fr": "Bouygues Flexom"
+          }
+        },
+        {
+          "value": "rexel",
+          "label": {
+            "en": "Rexel Energeasy Connect",
+            "fr": "Rexel Energeasy Connect"
+          }
+        },
+        {
+          "value": "hi_kumo",
+          "label": {
+            "en": "Hitachi Hi Kumo",
+            "fr": "Hitachi Hi Kumo"
+          }
+        }
+      ]
+    },
+    {
+      "key": "username_2",
+      "type": "string",
+      "label": {
+        "en": "Email / username",
+        "fr": "Email / identifiant"
+      },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
+      },
+      "required": false
+    },
+    {
+      "key": "password_2",
+      "type": "secret",
+      "label": {
+        "en": "Password",
+        "fr": "Mot de passe"
+      },
+      "required": false
+    },
+    {
+      "key": "account_3_intro",
+      "type": "section",
+      "label": {
+        "en": "Overkiz account 3 (optional)",
+        "fr": "Compte Overkiz 3 (optionnel)"
+      },
+      "description": {
+        "en": "A third account, same principle. Leave it empty if you do not need it.",
+        "fr": "Un troisième compte, même principe. Laissez-le vide si vous n'en avez pas besoin."
+      }
+    },
+    {
+      "key": "server_3",
+      "type": "select",
+      "label": {
+        "en": "Server (hub type)",
+        "fr": "Serveur (type de box)"
+      },
+      "required": false,
+      "default": "somfy_europe",
+      "options": [
+        {
+          "value": "somfy_europe",
+          "label": {
+            "en": "Somfy Europe (TaHoma, Switch, Connexoon IO)",
+            "fr": "Somfy Europe (TaHoma, Switch, Connexoon IO)"
+          }
+        },
+        {
+          "value": "somfy_australia",
+          "label": {
+            "en": "Somfy Australia / Oceania (Connexoon RTS)",
+            "fr": "Somfy Australie / Océanie (Connexoon RTS)"
+          }
+        },
+        {
+          "value": "somfy_north_america",
+          "label": {
+            "en": "Somfy North America",
+            "fr": "Somfy Amérique du Nord"
+          }
+        },
+        {
+          "value": "cozytouch",
+          "label": {
+            "en": "Atlantic Cozytouch / Thermor / Sauter",
+            "fr": "Atlantic Cozytouch / Thermor / Sauter"
+          }
+        },
+        {
+          "value": "flexom",
+          "label": {
+            "en": "Bouygues Flexom",
+            "fr": "Bouygues Flexom"
+          }
+        },
+        {
+          "value": "rexel",
+          "label": {
+            "en": "Rexel Energeasy Connect",
+            "fr": "Rexel Energeasy Connect"
+          }
+        },
+        {
+          "value": "hi_kumo",
+          "label": {
+            "en": "Hitachi Hi Kumo",
+            "fr": "Hitachi Hi Kumo"
+          }
+        }
+      ]
+    },
+    {
+      "key": "username_3",
+      "type": "string",
+      "label": {
+        "en": "Email / username",
+        "fr": "Email / identifiant"
+      },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
+      },
+      "required": false
+    },
+    {
+      "key": "password_3",
+      "type": "secret",
+      "label": {
+        "en": "Password",
+        "fr": "Mot de passe"
+      },
+      "required": false
+    },
+    {
+      "key": "advanced",
+      "type": "section",
+      "label": {
+        "en": "Advanced",
+        "fr": "Avancé"
+      }
+    },
+    {
       "key": "polling_period",
       "type": "number",
       "label": {
@@ -123,8 +321,8 @@
         "fr": "Période d'interrogation des événements (s)"
       },
       "description": {
-        "en": "How often events are fetched from the Overkiz cloud, in seconds.",
-        "fr": "Fréquence de récupération des événements depuis le cloud Overkiz, en secondes."
+        "en": "How often events are fetched from the Overkiz cloud, in seconds. Applies to every configured account.",
+        "fr": "Fréquence de récupération des événements depuis le cloud Overkiz, en secondes. S'applique à tous les comptes configurés."
       },
       "required": false,
       "default": 30,
@@ -139,7 +337,7 @@
         "en": "Test the connection",
         "fr": "Tester la connexion"
       },
-      "timeout_seconds": 60
+      "timeout_seconds": 120
     },
     {
       "key": "dump_devices",
