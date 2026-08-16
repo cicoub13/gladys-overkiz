@@ -1,6 +1,9 @@
 # Changelog
 
-## 1.2.1
+## 1.3.0
+
+Released as 1.3.0, not 1.2.1: the low-battery feature is an addition, and
+covers and lights gain features they never had. The 1.2.1 tag was withdrawn.
 
 ### Fixed
 
