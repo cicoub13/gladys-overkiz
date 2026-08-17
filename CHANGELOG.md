@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
 ### Added
 
@@ -17,6 +17,9 @@
   - **Test the connection** and **List the raw devices** cover every account,
     and the dump labels each device with the account it came from.
   - The event polling period stays a single setting, shared by all accounts.
+  - Every log line says which account it comes from (`[account 2]` instead of
+    the shared `[overkiz]` prefix), the lines `overkiz-client` writes itself
+    included, so a pasted log stays readable with three sessions running.
 
 ### Changed
 
@@ -27,25 +30,50 @@
 
 ### Fixed
 
-- **Every account failed with `this.externalId is not a function`, discovering
-  nothing.** The SDK helper that builds external ids is a method reaching
-  `this.externalId`, and it was handed to each account detached from the client,
-  so the first device it mapped threw — reported as a connection failure on
-  every configured account, with an empty Discovery screen behind it. The test
-  double now mirrors the SDK and fails the same way, so a detached helper can no
-  longer pass the suite.
-- A device the mapping cannot digest no longer takes its whole account down: it
-  is logged with its device URL, skipped, and the other devices of the account
-  are discovered as usual.
-- Lines written by the Overkiz session — including those `overkiz-client`
-  writes itself — now carry the account slot they come from instead of a shared
-  `[overkiz]` prefix, and the link going up or down is logged once rather than
-  twice.
+- **One unmappable device no longer costs you all the others.** A device the
+  mapping could not digest threw out of the whole discovery pass, so a single
+  unusual appliance left the integration with nothing at all. It is now logged
+  with its device URL, skipped, and every other device is discovered as usual.
 - Concurrent state publishes could each clear the 300-per-minute budget check
   before either recorded its own consumption, overshooting the window. Publishes
   are now serialized through a single integration-wide budget.
 - A dropped Overkiz link left the session reported as connected until the next
   failed call.
+
+## 1.3.0
+
+Released as 1.3.0, not 1.2.1: the low-battery feature is an addition, and
+covers and lights gain features they never had. The 1.2.1 tag was withdrawn.
+
+### Fixed
+
+- **Covers and lights report their battery.** `core:BatteryLevelState` had been
+  mapped since the first release, but `mapDeviceFeatures` returned from the
+  cover and light branches before ever reaching the sensor table — so the
+  battery was read for every device family EXCEPT the two that actually run on
+  one. Solar shutters, WireFree blinds and battery-powered lights now expose it
+  like any sensor does. Both branches now fall through, as the water heater and
+  plug branches already did, so those devices also pick up any other sensor
+  state they publish.
+
+  Gladys does not add features to a device that already exists: update the
+  affected devices from the discovery screen to see the battery appear.
+
+### Added
+
+- **A low-battery warning for the devices that have no gauge.** Most IO and RTS
+  sensors never publish a percentage — they answer the same question with a
+  word, under three different state names: `core:SensorDefectState`
+  (`lowBattery`), `core:BatteryState` (`low`, `verylow`) and
+  `internal:BatteryStatusState`. The first one the device reports feeds a Gladys
+  `battery-low` binary feature, which is what the Home Assistant overkiz
+  component does with the same states.
+
+  It stands alongside the percentage rather than replacing it: a device
+  reporting both gets both, because the warning threshold is the manufacturer's
+  and no percentage tells you where they put it. A status word outside the known
+  vocabulary publishes nothing at all — wrongly reporting a healthy battery is
+  the worse of the two silences.
 
 ## 1.2.0
 

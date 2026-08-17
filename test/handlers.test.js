@@ -495,6 +495,36 @@ test('a small setup never waits', async () => {
   assert.deepEqual(clock.sleeps, []);
 });
 
+// --- Batteries ---------------------------------------------------------------
+
+test('a cover pushes its battery states like any other', async () => {
+  const cover = makeOverkizDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: {
+      'core:ClosureState': 30,
+      'core:BatteryLevelState': 90,
+      'core:SensorDefectState': 'noDefect',
+    },
+  });
+  const { gladys, overkiz, handlers } = setup({ devices: [cover] });
+  await handlers.gladysConnected();
+
+  const deviceId = 'overkiz:overkiz:io-1234-5678-9012-12345678';
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${deviceId}:position`, state: 70 },
+    { device_feature_external_id: `${deviceId}:battery`, state: 90 },
+    { device_feature_external_id: `${deviceId}:battery_low`, state: 0 },
+  ]);
+
+  gladys.calls.states.length = 0;
+  cover.states.find((s) => s.name === 'core:SensorDefectState').value = 'lowBattery';
+  await overkiz.onStates(cover, [{ name: 'core:SensorDefectState', value: 'lowBattery' }]);
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${deviceId}:battery_low`, state: 1 },
+  ]);
+});
+
 // --- Water heaters -----------------------------------------------------------
 
 const WATER_HEATER_ID = 'overkiz:overkiz:io-1111-2222-3333-44444444-1';

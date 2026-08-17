@@ -6,8 +6,8 @@
     "en": "Control your Overkiz devices (Somfy TaHoma, Connexoon, Cozytouch...), up to 3 accounts.",
     "fr": "Contrôlez vos appareils Overkiz (Somfy TaHoma, Connexoon, Cozytouch...), jusqu'à 3 comptes."
   },
-  "version": "1.2.0",
-  "docker_image": "ghcr.io/cicoub13/gladys-overkiz:1.2.0",
+  "version": "1.3.0",
+  "docker_image": "ghcr.io/cicoub13/gladys-overkiz:1.3.0",
   "gladys_version": ">=4.85.0",
   "cover_image": "https://raw.githubusercontent.com/cicoub13/gladys-overkiz/main/cover.png",
   "config_schema": [
