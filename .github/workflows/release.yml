@@ -71,6 +71,11 @@ jobs:
             gladys-assistant-integration.json > "$tmp"
           mv "$tmp" gladys-assistant-integration.json
 
+          # jq reprints the whole file with its own style — it expands short
+          # arrays Prettier keeps on one line — so the release commit would
+          # otherwise leave `npm run format:check` failing on the next push.
+          npx --yes prettier@3 --write gladys-assistant-integration.json
+
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       # Note: if the branch you release from is protected against direct pushes,
