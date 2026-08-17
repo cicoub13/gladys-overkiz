@@ -434,6 +434,57 @@ test('an unreachable cloud is retried automatically', async () => {
   assert.equal(overkiz.connected, true);
 });
 
+test('a dropped link is reconnected, not just reported', async () => {
+  // The regression this guards: `overkiz-client` STOPS its own refresh and
+  // polling timers when it loses the session and never logs in again by itself,
+  // so an account that dropped its link stayed silent until the user restarted
+  // the integration — while the status claimed it was reconnecting.
+  const { overkiz, handlers, timer } = setup();
+  await handlers.gladysConnected();
+  assert.equal(overkiz.calls.start.length, 1);
+
+  overkiz.connected = false;
+  overkiz.onConnectionChange(false);
+  assert.equal(timer.pending.length, 1, 'a reconnection was armed');
+
+  await timer.runAll();
+
+  assert.equal(overkiz.calls.start.length, 2, 'the account logged in again');
+  assert.equal(overkiz.connected, true);
+});
+
+test('a link that comes back on its own cancels the pending reconnection', async () => {
+  const { overkiz, handlers, timer } = setup();
+  await handlers.gladysConnected();
+
+  // An expired token followed by a successful re-authentication: logging in
+  // again on top of that is exactly what gets an Overkiz account locked.
+  overkiz.onConnectionChange(false);
+  overkiz.onConnectionChange(true);
+  await timer.runAll();
+
+  assert.equal(overkiz.calls.start.length, 1, 'no needless re-authentication');
+});
+
+test('a scan during a pending retry does not stack reconnections', async () => {
+  const { overkiz, handlers, timer } = setup({ startError: 'Error 503' });
+  await handlers.configUpdated(VALID_CONFIG);
+  assert.equal(overkiz.calls.start.length, 1);
+
+  // A scan reconnects a failing account without cancelling anything, so the
+  // retry it schedules must REPLACE the pending one — leaving both armed makes
+  // the attempts double at every round.
+  await handlers.scan();
+
+  const armed = timer.pending.filter((entry) => !entry.cancelled);
+  assert.equal(armed.length, 1, 'only one reconnection is armed at a time');
+
+  overkiz.startError = null;
+  await timer.runAll();
+
+  assert.equal(overkiz.calls.start.length, 3, 'the config update, the scan, and one retry');
+});
+
 test('refused credentials are never retried', async () => {
   const { handlers, timer } = setup({
     startError: 'Error 401 Bad credentials (AUTHENTICATION_ERROR)',

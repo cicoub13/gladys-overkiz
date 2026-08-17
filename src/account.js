@@ -126,9 +126,15 @@ export function createAccount({
   }
 
   function scheduleRetry() {
+    // A scheduled attempt REPLACES the pending one: a scan that reconnects a
+    // failing account goes straight to `connect()` without cancelling anything,
+    // and losing the previous cancel function here left both timers running —
+    // the attempts then double at every round, which is exactly how an Overkiz
+    // account gets temporarily locked.
+    cancelRetry?.();
     const delayMs = retryDelayMs;
     retryDelayMs = Math.min(retryDelayMs * 2, RETRY_MAX_MS);
-    logger.info(`Overkiz cloud unreachable, retrying in ${Math.round(delayMs / 1000)}s`);
+    logger.info(`Reconnecting to Overkiz in ${Math.round(delayMs / 1000)}s`);
     cancelRetry = scheduleTimer(() => {
       cancelRetry = null;
       return onRetry().catch((err) => logger.error('Overkiz reconnection attempt failed', err));
@@ -176,8 +182,22 @@ export function createAccount({
     if (connected) {
       logger.info('Connected to the Overkiz API');
       lastError = null;
+      // The session came back on its own — an expired token followed by a
+      // successful re-authentication. The attempt scheduled below is moot now,
+      // and logging in for nothing is what gets an account locked.
+      cancelRetry?.();
+      cancelRetry = null;
+      retryDelayMs = RETRY_INITIAL_MS;
     } else {
       logger.warn('Disconnected from the Overkiz API');
+      // `overkiz-client` STOPS its own refresh and polling timers when it loses
+      // the session, and never logs in again by itself — so nothing would ever
+      // bring the account back. Worse, its `connectPromise` keeps the rejection
+      // of a failed re-authentication for good, so only a brand new client
+      // recovers: that is what `overkiz.start()` does, and what this retry
+      // eventually calls. The 60s initial delay leaves a plain token expiry —
+      // one HTTP round trip — the time to heal on its own first.
+      scheduleRetry();
     }
     onLinkChange();
   };
