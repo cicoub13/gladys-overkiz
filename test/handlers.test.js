@@ -525,6 +525,35 @@ test('a cover pushes its battery states like any other', async () => {
   ]);
 });
 
+// A solar Velux cover has neither a gauge nor a sensor defect state: the
+// discrete level is its only battery signal, on discovery and on every update.
+test('a solar Velux cover pushes its discrete battery level', async () => {
+  const cover = makeOverkizDevice({
+    uiClass: 'RollerShutter',
+    controllableName: 'io:RollerShutterVeluxIOComponent',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: {
+      'core:ClosureState': 100,
+      'core:BatteryDiscreteLevelState': 'good',
+    },
+  });
+  const { gladys, overkiz, handlers } = setup({ devices: [cover] });
+  await handlers.gladysConnected();
+
+  const deviceId = 'overkiz:overkiz:io-1234-5678-9012-12345678';
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${deviceId}:position`, state: 0 },
+    { device_feature_external_id: `${deviceId}:battery_low`, state: 0 },
+  ]);
+
+  gladys.calls.states.length = 0;
+  cover.states.find((s) => s.name === 'core:BatteryDiscreteLevelState').value = 'low';
+  await overkiz.onStates(cover, [{ name: 'core:BatteryDiscreteLevelState', value: 'low' }]);
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: `${deviceId}:battery_low`, state: 1 },
+  ]);
+});
+
 // --- Water heaters -----------------------------------------------------------
 
 const WATER_HEATER_ID = 'overkiz:overkiz:io-1111-2222-3333-44444444-1';

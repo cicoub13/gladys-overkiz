@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.1
+
+### Fixed
+
+- **Solar Velux covers report their battery.** They publish neither a gauge nor
+  any of the three battery status names the mapping knew: their only battery
+  signal is a fourth one, `core:BatteryDiscreteLevelState`, which is what the
+  Home Assistant overkiz component and the Matterbridge Somfy TaHoma plugin both
+  read to tell a battery-powered TaHoma cover from a wired one. It now feeds the
+  `battery-low` feature like the other three, its `good` / `medium` / `low` /
+  `critical` vocabulary already being covered word for word.
+
+  Gladys does not add features to a device that already exists: update the
+  affected covers from the discovery screen to see the warning appear.
+
 ## 1.5.0
 
 ### Added

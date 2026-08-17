@@ -102,11 +102,32 @@ test('a device reporting a battery status gets a low-battery feature', () => {
   assert.equal(entry.gladysFeature.read_only, true);
 });
 
+// Solar covers — Velux ones especially — report neither a gauge nor any of the
+// battery status names the other families use: their only battery signal is a
+// discrete level, which used to leave them with no battery feature at all.
+test('a solar Velux cover reports its discrete battery level', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    controllableName: 'io:RollerShutterVeluxIOComponent',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: { 'core:ClosureState': 100, 'core:BatteryDiscreteLevelState': 'good' },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  const keys = entries.map((e) => e.key).sort();
+  assert.deepEqual(keys, ['battery_low', 'position', 'state']);
+  const battery = entries.find((e) => e.key === 'battery_low');
+  assert.equal(battery.stateName, 'core:BatteryDiscreteLevelState');
+  assert.equal(battery.gladysFeature.category, 'battery-low');
+  assert.equal(battery.gladysFeature.type, 'binary');
+});
+
 test('the sensor defect state wins over the other battery status names', () => {
   const device = makeDevice({
     uiClass: 'OccupancySensor',
     states: {
       'core:BatteryState': 'normal',
+      'core:BatteryDiscreteLevelState': 'good',
       'core:SensorDefectState': 'lowBattery',
       'internal:BatteryStatusState': 'full',
     },
@@ -170,12 +191,16 @@ test('stateToGladysValue returns null for values it cannot map', () => {
   assert.equal(stateToGladysValue({ key: 'temperature' }, '21.5'), 21.5);
 });
 
-test('stateToGladysValue reads the three battery status vocabularies', () => {
+test('stateToGladysValue reads the four battery status vocabularies', () => {
   const lowBattery = (raw) => stateToGladysValue({ key: 'battery_low' }, raw);
   assert.equal(lowBattery('lowBattery'), 1);
   assert.equal(lowBattery('low'), 1);
   assert.equal(lowBattery('verylow'), 1);
   assert.equal(lowBattery('dead'), 1);
+  // The discrete level of the solar covers: good / medium / low / critical.
+  assert.equal(lowBattery('critical'), 1);
+  assert.equal(lowBattery('good'), 0);
+  assert.equal(lowBattery('medium'), 0);
   assert.equal(lowBattery('full'), 0);
   assert.equal(lowBattery('normal'), 0);
   assert.equal(lowBattery('noDefect'), 0);

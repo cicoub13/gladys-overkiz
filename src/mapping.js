@@ -46,6 +46,7 @@ export const STATES = {
   ELECTRIC_ENERGY_CONSUMPTION: 'core:ElectricEnergyConsumptionState',
   BATTERY_LEVEL: 'core:BatteryLevelState',
   BATTERY: 'core:BatteryState',
+  BATTERY_DISCRETE_LEVEL: 'core:BatteryDiscreteLevelState',
   SENSOR_DEFECT: 'core:SensorDefectState',
   BATTERY_STATUS: 'internal:BatteryStatusState',
   // Domestic hot water
@@ -124,12 +125,18 @@ const POSITION_UNKNOWN = 124;
 // --- Batteries ---------------------------------------------------------------
 // Only a minority of battery-powered devices publish a gauge
 // (`core:BatteryLevelState`); the rest answer the same question with a word,
-// under three names depending on the protocol. `core:SensorDefectState` comes
-// first: it is the only one that tells a low battery apart from another sensor
-// defect.
-const BATTERY_LOW_STATES = [STATES.SENSOR_DEFECT, STATES.BATTERY, STATES.BATTERY_STATUS];
+// under four names depending on the protocol — solar covers, Velux ones
+// especially, report `core:BatteryDiscreteLevelState` and nothing else.
+// `core:SensorDefectState` comes first: it is the only one that tells a low
+// battery apart from another sensor defect.
+const BATTERY_LOW_STATES = [
+  STATES.SENSOR_DEFECT,
+  STATES.BATTERY,
+  STATES.BATTERY_DISCRETE_LEVEL,
+  STATES.BATTERY_STATUS,
+];
 
-// The vocabularies those three states draw from. Anything outside both lists is
+// The vocabularies those four states draw from. Anything outside both lists is
 // published as nothing at all: wrongly reporting "battery fine" is the worse of
 // the two silences.
 const BATTERY_LOW_VALUES = new Set(['low', 'verylow', 'critical', 'lowbattery', 'dead']);
@@ -810,7 +817,7 @@ export function mapDeviceFeatures(device, ids) {
   }
 
   // A low-battery warning cannot be a `sensorMap` row: that table carries one
-  // state name per feature, whereas the warning is read from the first of three
+  // state name per feature, whereas the warning is read from the first of four
   // candidates the device happens to publish. It stands alongside the gauge
   // rather than replacing it — the threshold is the manufacturer's, and no
   // percentage tells you where they put it.
@@ -859,8 +866,9 @@ export function stateToGladysValue(entry, rawValue) {
     const lowered = rawValue.trim().toLowerCase();
     return lowered === 'on' || lowered === 'heating' ? 1 : 0;
   }
-  // `core:SensorDefectState`, `core:BatteryState` and `internal:BatteryStatusState`
-  // all answer "is this battery running out", each with its own words.
+  // `core:SensorDefectState`, `core:BatteryState`, `core:BatteryDiscreteLevelState`
+  // and `internal:BatteryStatusState` all answer "is this battery running out",
+  // each with its own words.
   if (key === 'battery_low') {
     if (typeof rawValue !== 'string') {
       return null;
