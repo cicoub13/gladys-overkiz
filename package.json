@@ -17,7 +17,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.9.0",
+    "@gladysassistant/integration-sdk": "^0.12.0",
     "overkiz-client": "^1.0.23"
   },
   "devDependencies": {

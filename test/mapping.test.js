@@ -6,8 +6,6 @@ import {
   stateToGladysValue,
   buildCommand,
   buildDiscoveredDevice,
-  WATER_HEATER_CATEGORY,
-  WATER_HEATER_TYPES,
   WATER_HEATER_MODE,
 } from '../src/mapping.js';
 import {
@@ -355,17 +353,9 @@ test('buildDiscoveredDevice builds a full discovery payload', () => {
 // --- Water heaters -----------------------------------------------------------
 
 test('the water-heater constants match the Gladys taxonomy', () => {
-  // Not exported by the SDK yet (absent from 0.10.0), so nothing else would
-  // catch a typo before Gladys rejects the whole discovery with a 400.
-  assert.equal(WATER_HEATER_CATEGORY, 'water-heater');
-  assert.deepEqual(WATER_HEATER_TYPES, {
-    BINARY: 'binary',
-    MODE: 'mode',
-    TARGET_TEMPERATURE: 'target-temperature',
-    REMAINING_HOT_WATER: 'remaining-hot-water',
-    HEATING: 'heating',
-    BOOST: 'boost',
-  });
+  // The category and the feature types now come from the SDK; the mode values
+  // are still declared locally, so nothing else would catch a typo there before
+  // Gladys rejects the whole discovery with a 400.
   assert.deepEqual(WATER_HEATER_MODE, {
     OFF: 0,
     AUTO: 1,

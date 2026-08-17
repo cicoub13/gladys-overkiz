@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.0
+
+### Added
+
+- **Store shelves.** The manifest declares the catalog categories the
+  integration is listed under: `lighting` (covers, lights, plugs), `climate`
+  (water heaters) and `security` (sirens, opening / motion / smoke / leak
+  sensors). Without the field the integration only showed up under "All" and in
+  search.
+- The manifest declares `transports: ["cloud"]`: every server option is an
+  Overkiz cloud endpoint, the client never talks to the hub over the LAN.
+
+### Changed
+
+- `@gladysassistant/integration-sdk` 0.9.0 → 0.12.0, the release resynced with
+  Gladys 4.86. The `water-heater` category and its six feature types are now
+  carried by the SDK, so the local copies of those strings — declared here while
+  the SDK lagged behind, and locked by a test — are gone in favour of
+  `DEVICE_FEATURE_CATEGORIES.WATER_HEATER` and
+  `DEVICE_FEATURE_TYPES.WATER_HEATER`. Same strings, no behaviour change; the
+  `WATER_HEATER_MODE` value enumeration stays local, the SDK does not mirror it.
+- **Requires Gladys 4.86 or later** (was 4.85). Declaring `categories` and
+  claiming compatibility with an older core are mutually exclusive: cores below
+  4.86 reject any manifest field they do not know, so the store validator
+  enforces the coupling.
+
 ## 1.4.0
 
 ### Added

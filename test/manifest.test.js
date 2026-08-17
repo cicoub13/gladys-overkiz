@@ -29,6 +29,31 @@ function makeHandlers() {
   });
 }
 
+test('declaring catalog categories requires Gladys >= 4.86.0', () => {
+  // The vocabulary itself is filtered by the store validator (an unknown key is
+  // dropped with a warning there); what this pins is the coupling rule: older
+  // cores reject any unknown manifest field, so a manifest declaring
+  // `categories` must not claim compatibility below the release accepting it.
+  assert.ok(
+    manifest.categories.length >= 1 && manifest.categories.length <= 3,
+    'the catalog accepts 1 to 3 categories',
+  );
+  const minVersion = manifest.gladys_version.match(/>=\s*(\d+)\.(\d+)\.\d+/);
+  assert.ok(minVersion, 'gladys_version must declare a minimum version');
+  const [, major, minor] = minVersion.map(Number);
+  assert.ok(
+    major > 4 || (major === 4 && minor >= 86),
+    `categories requires gladys_version >= 4.86.0, got "${manifest.gladys_version}"`,
+  );
+});
+
+test('the integration is declared cloud-only', () => {
+  // Every server option is an Overkiz cloud endpoint — the client never talks to
+  // the hub over the LAN. Declaring `local` too would make Gladys render the
+  // "Prefer the local connection" toggle for a channel that does not exist.
+  assert.deepEqual(manifest.transports, ['cloud']);
+});
+
 test('every manifest action has a registered handler', () => {
   // Ask the real factory what it exposes, so the manifest and the code cannot
   // drift apart behind a hard-coded list.

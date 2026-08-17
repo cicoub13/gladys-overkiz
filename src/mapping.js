@@ -12,25 +12,11 @@ import {
   DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
 
-// The Gladys `water-heater` device feature category (GladysAssistant/Gladys#2771,
-// merged) is not mirrored by `@gladysassistant/integration-sdk` yet — it is
-// absent from 0.10.0, the latest published version — so its strings are declared
-// here and locked by a test. Swap them for `DEVICE_FEATURE_CATEGORIES.WATER_HEATER`
-// and `DEVICE_FEATURE_TYPES.WATER_HEATER` as soon as an SDK release carries them.
-export const WATER_HEATER_CATEGORY = 'water-heater';
-
-export const WATER_HEATER_TYPES = {
-  BINARY: 'binary',
-  MODE: 'mode',
-  TARGET_TEMPERATURE: 'target-temperature',
-  REMAINING_HOT_WATER: 'remaining-hot-water',
-  HEATING: 'heating',
-  BOOST: 'boost',
-};
-
-// Gladys WATER_HEATER_MODE. The enumeration is the full generic set; which of
-// its values a given appliance offers is declared per feature through
-// `supported_options`, never by narrowing the enum.
+// Gladys WATER_HEATER_MODE — the one part of the water-heater taxonomy the SDK
+// does not mirror (it carries the category and the feature types, not the value
+// enumerations). The enumeration is the full generic set; which of its values a
+// given appliance offers is declared per feature through `supported_options`,
+// never by narrowing the enum.
 export const WATER_HEATER_MODE = {
   OFF: 0,
   AUTO: 1,
@@ -473,8 +459,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       derive: (device) =>
         deriveWaterHeaterMode(device, { modeStateName, absenceStateName, dialect }),
       gladysFeature: feature(ids, 'mode', {
-        category: WATER_HEATER_CATEGORY,
-        type: WATER_HEATER_TYPES.MODE,
+        category: DEVICE_FEATURE_CATEGORIES.WATER_HEATER,
+        type: DEVICE_FEATURE_TYPES.WATER_HEATER.MODE,
         min: WATER_HEATER_MODE.OFF,
         max: WATER_HEATER_MODE.PROGRAM,
         read_only: supportedOptions.length === 0,
@@ -498,8 +484,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       key: 'boost',
       stateName: boostStateName,
       gladysFeature: feature(ids, 'boost', {
-        category: WATER_HEATER_CATEGORY,
-        type: WATER_HEATER_TYPES.BOOST,
+        category: DEVICE_FEATURE_CATEGORIES.WATER_HEATER,
+        type: DEVICE_FEATURE_TYPES.WATER_HEATER.BOOST,
         min: 0,
         max: 1,
         read_only: !canSetBoost,
@@ -514,8 +500,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       key: 'target_temperature',
       stateName: targetStateName,
       gladysFeature: feature(ids, 'target_temperature', {
-        category: WATER_HEATER_CATEGORY,
-        type: WATER_HEATER_TYPES.TARGET_TEMPERATURE,
+        category: DEVICE_FEATURE_CATEGORIES.WATER_HEATER,
+        type: DEVICE_FEATURE_TYPES.WATER_HEATER.TARGET_TEMPERATURE,
         unit: DEVICE_FEATURE_UNITS.CELSIUS,
         min: firstNumber(stateValues, DHW_MIN_TEMPERATURE_STATES, DHW_DEFAULT_MIN_TEMPERATURE),
         max: firstNumber(stateValues, DHW_MAX_TEMPERATURE_STATES, DHW_DEFAULT_MAX_TEMPERATURE),
@@ -531,8 +517,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       key: 'remaining_hot_water',
       stateName: remainingHotWaterStateName,
       gladysFeature: feature(ids, 'remaining_hot_water', {
-        category: WATER_HEATER_CATEGORY,
-        type: WATER_HEATER_TYPES.REMAINING_HOT_WATER,
+        category: DEVICE_FEATURE_CATEGORIES.WATER_HEATER,
+        type: DEVICE_FEATURE_TYPES.WATER_HEATER.REMAINING_HOT_WATER,
         unit: DEVICE_FEATURE_UNITS.LITER,
         min: 0,
         max: firstNumber(stateValues, DHW_CAPACITY_STATES, DHW_DEFAULT_CAPACITY),
@@ -546,8 +532,8 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
       key: 'heating',
       stateName: heatingStateName,
       gladysFeature: feature(ids, 'heating', {
-        category: WATER_HEATER_CATEGORY,
-        type: WATER_HEATER_TYPES.HEATING,
+        category: DEVICE_FEATURE_CATEGORIES.WATER_HEATER,
+        type: DEVICE_FEATURE_TYPES.WATER_HEATER.HEATING,
         min: 0,
         max: 1,
       }),

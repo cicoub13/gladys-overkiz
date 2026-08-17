@@ -9,7 +9,7 @@ Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma,
 - **Interrupteurs et prises** : marche/arrêt.
 - **Capteurs** : température, humidité, luminosité, contact (ouverture), présence (mouvement), fumée, fuite d'eau, CO2 et puissance/consommation électrique.
 - **Batterie** : sur tous les appareils qui la remontent, volets et lampes compris. Les appareils dotés d'une jauge publient un niveau en pourcentage ; ceux qui ne rapportent qu'un statut — la majorité des capteurs IO et RTS — publient à la place un indicateur « batterie faible ».
-- **Chauffe-eau** : mode de fonctionnement (éco, manuel, auto, absence), boost, température de consigne, eau chaude restante (en litres soutirables à 40 °C), chauffe en cours et température de l'eau. Nécessite **Gladys 4.85 ou supérieur**, version qui introduit la catégorie chauffe-eau.
+- **Chauffe-eau** : mode de fonctionnement (éco, manuel, auto, absence), boost, température de consigne, eau chaude restante (en litres soutirables à 40 °C), chauffe en cours et température de l'eau.
 
 Les états sont rafraîchis en quasi temps réel via l'API d'événements Overkiz : un volet actionné depuis une télécommande physique est reflété dans Gladys en quelques secondes.
 
@@ -22,6 +22,7 @@ Les états sont rafraîchis en quasi temps réel via l'API d'événements Overki
 
 ## Prérequis
 
+- **Gladys 4.86 ou supérieur.**
 - Une box Overkiz (Somfy TaHoma, TaHoma Switch, Connexoon, Cozytouch...) déjà configurée avec l'application du fabricant.
 - L'email et le mot de passe de votre compte fabricant (les mêmes identifiants que dans l'application TaHoma / Cozytouch).
 

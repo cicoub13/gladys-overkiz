@@ -9,7 +9,7 @@ Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma S
 - **Switches and plugs**: on/off.
 - **Sensors**: temperature, humidity, luminance, contact (opening), occupancy (motion), smoke, water leak, CO2 and electric power/energy.
 - **Battery**: every device that reports one, covers and lights included. Devices with a gauge get a battery level in percent; those that only report a status — most IO and RTS sensors — get a "low battery" indicator instead.
-- **Water heaters**: operating mode (eco, manual, auto, away), boost, hot water setpoint, hot water left (in litres drawable at 40 °C), whether the appliance is heating, and the water temperature. Requires **Gladys 4.85 or later**, which is where the water heater category was added.
+- **Water heaters**: operating mode (eco, manual, auto, away), boost, hot water setpoint, hot water left (in litres drawable at 40 °C), whether the appliance is heating, and the water temperature.
 
 Device states are refreshed in near real time through the Overkiz event API, so a shutter moved from a physical remote is reflected in Gladys within seconds.
 
@@ -22,6 +22,7 @@ Device states are refreshed in near real time through the Overkiz event API, so 
 
 ## Prerequisites
 
+- **Gladys 4.86 or later.**
 - An Overkiz-based hub (Somfy TaHoma, TaHoma Switch, Connexoon, Cozytouch...) already set up with the vendor's app.
 - The email and password of your vendor account (the same credentials you use in the TaHoma / Cozytouch app).
 

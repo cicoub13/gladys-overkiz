@@ -2,7 +2,7 @@
 
 Overkiz external integration for [Gladys Assistant](https://gladysassistant.com): control Somfy TaHoma, TaHoma Switch, Connexoon, Atlantic Cozytouch, Rexel Energeasy Connect, Hitachi Hi Kumo and Bouygues Flexom devices from Gladys.
 
-Built on the [Gladys external integration platform](https://gladysassistant.com/docs/dev/external-integrations/) and the [`overkiz-client`](https://github.com/dubocr/overkiz-client) library, with device mappings inspired by the [Home Assistant Overkiz component](https://github.com/home-assistant/core/tree/dev/homeassistant/components/overkiz).
+Built on the [Gladys external integration platform](https://gladysassistant.com/docs/dev/external-integrations/) and the [`overkiz-client`](https://github.com/dubocr/overkiz-client) library, with device mappings inspired by the [Home Assistant Overkiz component](https://github.com/home-assistant/core/tree/dev/homeassistant/components/overkiz). Requires **Gladys 4.86 or later**.
 
 Up to **3 Overkiz accounts** can run side by side — brands keep separate accounts on separate servers, so a Somfy hub for the covers and an Atlantic Cozytouch account for a Thermor water heater is a common setup. Gladys installs an integration once (its selector is derived from the repository, so a second install is refused), which is why the accounts live inside it rather than in several instances.
 
@@ -21,7 +21,7 @@ Up to **3 Overkiz accounts** can run side by side — brands keep separate accou
 
 Not mapped yet: `HeatingSystem`, `DoorLock`, `Alarm`, `AirFlow`. Cozytouch / Thermor / Sauter / Hi Kumo hubs connect fine, but their radiators and heat pumps will not appear in discovery.
 
-Water heaters map onto the Gladys `water-heater` category, which requires **Gladys 4.85 or later**.
+Water heaters map onto the Gladys `water-heater` category.
 Atlantic / Thermor tanks present eco and absence as two independent switches rather than as a
 selector; they are folded into the single Gladys `mode` feature, which declares the values it can
 actually reach through `supported_options`. Boost stays a feature of its own because the appliance
