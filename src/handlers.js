@@ -137,7 +137,12 @@ export function createHandlers({
       scheduleTimer,
       onRetry: () => connectAccount(findAccount(accountConfig.id)),
       onLinkChange: () => {
-        refreshConnectionStatus().catch(() => {});
+        // Nothing awaits this one — the link changed under us, no handler is
+        // running — but a status that silently failed to update is exactly the
+        // kind of thing that leaves the user staring at a stale green dot.
+        refreshConnectionStatus().catch((err) =>
+          logger.error('Failed to update the connection status', err),
+        );
       },
     });
   }

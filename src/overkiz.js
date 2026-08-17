@@ -89,7 +89,13 @@ export class Overkiz {
       if (!this.devicesByUrl.has(device.deviceURL)) {
         this.devicesByUrl.set(device.deviceURL, device);
         device.on('states', (states) => {
-          this.onStates?.(device, states);
+          // The handler is asynchronous and nothing awaits it here: an
+          // unhandled rejection would take the whole integration down. One
+          // device publishing something the mapping chokes on must cost that
+          // update, not the process.
+          Promise.resolve(this.onStates?.(device, states)).catch((err) =>
+            this.logger.error(`Failed to handle a state update of ${device.deviceURL}`, err),
+          );
         });
       }
     }

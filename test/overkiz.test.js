@@ -104,6 +104,26 @@ test('state updates are forwarded to onStates', async () => {
   assert.equal(received[0].dev, device);
 });
 
+test('a failing state handler is logged, not left to crash the process', async () => {
+  // `onStates` is asynchronous and no one awaits it from the event listener:
+  // an unhandled rejection would take the whole integration down with it.
+  const device = makeFakeDevice('io://1/1');
+  const client = makeFakeClient({ devices: { 'io://1/1': device } });
+  const errors = [];
+  const logger = { debug() {}, info() {}, warn() {}, error: (...args) => errors.push(args) };
+  const overkiz = new Overkiz({ createClient: () => client, logger });
+  overkiz.onStates = async () => {
+    throw new Error('boom');
+  };
+
+  await overkiz.start(CONFIG);
+  device.listeners.states([{ name: 'core:OnOffState', value: 'on' }]);
+  await Promise.resolve(); // let the rejection settle
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0][0], /io:\/\/1\/1/);
+});
+
 test('connection changes are forwarded to onConnectionChange', async () => {
   const client = makeFakeClient();
   const overkiz = new Overkiz({ createClient: () => client });
