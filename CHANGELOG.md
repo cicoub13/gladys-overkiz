@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.5.2
+
+### Fixed
+
+- **An account that loses its Overkiz session reconnects on its own.** When the
+  cloud dropped the session and the immediate retry did not go through — an
+  outage, a throttled account — the underlying client stopped its own polling
+  timers and never logged in again, so the account went silent until you
+  restarted the integration, ran a scan or clicked "Test connection". The status
+  said "reconnecting..." while nothing was. The reconnection is now driven by the
+  integration itself, with the same backoff used for a failed connection: a
+  minute, then doubling up to fifteen. A session that comes back on its own
+  cancels the pending attempt, so a plain token renewal still costs no login.
+
+- **One misbehaving device can no longer stop the integration.** A state update
+  the mapping choked on raised an error nothing caught, which Node turns into a
+  process exit — taking all three accounts down over a single device. Such an
+  update is now logged with its device URL and dropped, like an unmappable device
+  already was during discovery. A connection status that fails to reach Gladys is
+  logged too, instead of vanishing silently.
+
 ## 1.5.1
 
 ### Fixed
