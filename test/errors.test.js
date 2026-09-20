@@ -40,6 +40,9 @@ test('network failures are transient and worth retrying', () => {
 test('an unrecognized failure keeps the raw text so it can be reported', () => {
   const described = describeOverkizError('Error 418 I am a teapot');
   assert.equal(described.kind, 'unknown');
-  assert.equal(described.transient, false);
+  // A regex whitelist can never be exhaustive: a cause the classifier cannot
+  // name still gets retried, or an account would stay silent forever on any
+  // failure this module never learned to recognize.
+  assert.equal(described.transient, true);
   assert.match(described.message.en, /I am a teapot/);
 });

@@ -458,6 +458,38 @@ test('saving a changed polling period reconnects', async () => {
   assert.equal(overkiz.calls.start[1].polling_period, 60);
 });
 
+test('a Gladys reconnection during a pending retry does not relogin', async () => {
+  // The regression this guards: `applyConfig` used to keep a session only
+  // when it was CONNECTED, so a failing account was torn down and rebuilt on
+  // every WebSocket reconnection — restarting its backoff at 60s instead of
+  // letting it climb. An unstable WebSocket on top of an unreachable cloud
+  // hammered Overkiz with logins.
+  const { overkiz, handlers, timer } = setup({ startError: 'Error 503' });
+  await handlers.gladysConnected();
+  assert.equal(overkiz.calls.start.length, 1);
+  assert.equal(timer.pending.length, 1, 'a retry was armed');
+
+  await handlers.gladysConnected();
+
+  assert.equal(overkiz.calls.start.length, 1, 'no login attempt from the reconnection itself');
+  const armed = timer.pending.filter((entry) => !entry.cancelled);
+  assert.equal(armed.length, 1, 'the pending retry was neither duplicated nor restarted');
+});
+
+test('a Gladys reconnection on refused credentials does not retry either', async () => {
+  const { overkiz, handlers, timer } = setup({
+    startError: 'Error 401 Bad credentials (AUTHENTICATION_ERROR)',
+  });
+  await handlers.gladysConnected();
+  assert.equal(overkiz.calls.start.length, 1);
+  assert.equal(timer.pending.length, 0, 'refused credentials arm no retry');
+
+  await handlers.gladysConnected();
+
+  assert.equal(overkiz.calls.start.length, 1, 'the reconnection did not attempt another login');
+  assert.equal(timer.pending.length, 0);
+});
+
 // --- Retry: only what can heal on its own -------------------------------------
 
 test('an unreachable cloud is retried automatically', async () => {
@@ -469,6 +501,24 @@ test('an unreachable cloud is retried automatically', async () => {
   assert.equal(timer.pending.length, 1, 'a retry was armed');
 
   overkiz.startError = null; // the cloud came back
+  await timer.runAll();
+
+  assert.equal(overkiz.calls.start.length, 2);
+  assert.equal(overkiz.connected, true);
+});
+
+test('a failure the classifier cannot name is still retried', async () => {
+  // A regex whitelist can never be exhaustive: an unrecognized cause (a
+  // network errno this module never learned, a TLS error...) must default to
+  // "retry", not to "give up silently until the user restarts the process".
+  const { overkiz, handlers, timer } = setup({
+    startError: 'connect ENETUNREACH 1.2.3.4:443',
+  });
+  await handlers.configUpdated(VALID_CONFIG);
+  assert.equal(overkiz.calls.start.length, 1);
+  assert.equal(timer.pending.length, 1, 'a retry was armed despite the unrecognized cause');
+
+  overkiz.startError = null;
   await timer.runAll();
 
   assert.equal(overkiz.calls.start.length, 2);

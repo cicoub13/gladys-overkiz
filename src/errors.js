@@ -12,8 +12,15 @@
  * @typedef {'credentials' | 'locked' | 'unreachable' | 'unknown'} ErrorKind
  */
 
-/** Kinds worth retrying: the setup is fine, the cloud is momentarily not. */
-const TRANSIENT_KINDS = new Set(['unreachable']);
+/**
+ * Kinds NOT worth retrying: refused credentials do not become valid by
+ * retrying, and a locked account only gets locked harder. Everything else —
+ * including a cause the classifier below cannot name — gets the backoff: a
+ * whitelist by regex can never be exhaustive, so an unrecognized network
+ * failure (ENETUNREACH, a TLS error...) must default to "retry", not to
+ * "give up silently".
+ */
+const FATAL_KINDS = new Set(['credentials', 'locked']);
 
 /**
  * Flatten a thrown value (string, Error, anything) into readable text.
@@ -79,5 +86,5 @@ export function describeOverkizError(err) {
     en: `Connection to the Overkiz API failed: ${text}`,
     fr: `La connexion à l'API Overkiz a échoué : ${text}`,
   };
-  return { kind, transient: TRANSIENT_KINDS.has(kind), text, message };
+  return { kind, transient: !FATAL_KINDS.has(kind), text, message };
 }

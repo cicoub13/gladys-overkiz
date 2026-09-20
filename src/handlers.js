@@ -182,11 +182,12 @@ export function createHandlers({
 
     for (const accountConfig of nextConfig.accounts.filter((a) => a.complete)) {
       const existing = previous.find((account) => account.id === accountConfig.id);
-      if (
-        existing &&
-        existing.connected &&
-        connectionConfigEquals(existing.config, accountConfig)
-      ) {
+      // A session whose connection settings did not move is KEPT whatever its
+      // state — connected, or mid-backoff. Recreating it on every Gladys
+      // WebSocket reconnection restarted its retry delay at RETRY_INITIAL_MS,
+      // so an unstable WebSocket on top of a failing account hammered Overkiz
+      // with logins — exactly the lockout the backoff exists to avoid.
+      if (existing && connectionConfigEquals(existing.config, accountConfig)) {
         kept.push(existing);
         continue;
       }
