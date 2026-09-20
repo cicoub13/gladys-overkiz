@@ -325,7 +325,7 @@ export function createAccount({
       const deviceUrl = deviceUrlByExternalId.get(device.external_id);
       const entry = mappedDevices
         .get(deviceUrl)
-        .entries.find((e) => e.gladysFeature.external_id === feature.external_id);
+        ?.entries.find((e) => e.gladysFeature.external_id === feature.external_id);
       if (!entry) {
         throw new Error(`Unknown feature ${feature.external_id}`);
       }
@@ -338,11 +338,21 @@ export function createAccount({
 
       // Optimistic echo: the event poller only confirms the move up to a polling
       // period later, and the UI would sit on the stale value until then. The
-      // real state overwrites this one as soon as it arrives.
+      // real state overwrites this one as soon as it arrives. Clamped to the
+      // feature's own bounds — `buildCommand` already clamps what is actually
+      // sent to the device, so the echo must agree with it rather than show a
+      // raw, possibly out-of-range value until the next event poll. A
+      // non-numeric value publishes nothing: `NaN` would otherwise travel
+      // through as `null` and poison deduplication.
       if (entry.stateName || entry.derive) {
-        await publisher.publish([
-          { device_feature_external_id: feature.external_id, state: Number(value) },
-        ]);
+        const echoed = Number(value);
+        if (Number.isFinite(echoed)) {
+          const { min, max } = entry.gladysFeature;
+          const clamped = Math.min(max ?? echoed, Math.max(min ?? echoed, echoed));
+          await publisher.publish([
+            { device_feature_external_id: feature.external_id, state: clamped },
+          ]);
+        }
       }
     },
 

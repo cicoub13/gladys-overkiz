@@ -221,6 +221,47 @@ test('a write-only command publishes no optimistic state', async () => {
   assert.equal(gladys.calls.states.length, 0, 'the state feature has no Overkiz counterpart');
 });
 
+test('an out-of-range command echoes the clamped value, not the raw one', async () => {
+  const shutter = makeOverkizDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+    states: { 'core:ClosureState': 100 },
+  });
+  const { gladys, handlers } = setup({ devices: [shutter] });
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  const featureId = 'overkiz:overkiz:io-1234-5678-9012-12345678:position';
+  // `buildCommand` already clamps what is actually sent to the device (150 ->
+  // fully open); the echo must agree with it rather than show 150% until the
+  // next event poll.
+  await handlers.setValue(
+    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
+    { external_id: featureId },
+    150,
+  );
+
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: featureId, state: 100 },
+  ]);
+});
+
+test('a non-numeric command value publishes no optimistic echo', async () => {
+  const { gladys, handlers } = setup();
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  // `Number('not-a-number')` is NaN: it must not travel through as `null` and
+  // poison deduplication.
+  await handlers.setValue(
+    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Light' },
+    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:binary' },
+    'not-a-number',
+  );
+
+  assert.equal(gladys.calls.states.length, 0);
+});
+
 test('a command on an unknown device or feature is rejected', async () => {
   const { handlers } = setup();
   await handlers.gladysConnected();
