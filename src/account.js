@@ -329,8 +329,24 @@ export function createAccount({
       if (!entry) {
         throw new Error(`Unknown feature ${feature.external_id}`);
       }
+
+      // Normalize ONCE, before building the command: `buildCommand` only clamps
+      // a couple of its keys (e.g. `position`), so a raw out-of-range or
+      // non-numeric value used to reach the device unclamped while a
+      // best-effort echo published something else entirely. Deriving the
+      // command and the echo from the same `effective` value keeps them unable
+      // to disagree. `NaN` is rejected outright: it must not reach the device
+      // as an uncontrolled command, nor travel through the echo as `null` and
+      // poison deduplication.
+      const requested = Number(value);
+      if (!Number.isFinite(requested)) {
+        throw new Error(`No Overkiz command for ${feature.external_id} = ${value}`);
+      }
+      const { min, max } = entry.gladysFeature;
+      const effective = Math.min(max ?? requested, Math.max(min ?? requested, requested));
+
       const overkizDevice = overkiz.getDevice(deviceUrl);
-      const command = overkizDevice && buildCommand(overkizDevice, entry, value);
+      const command = overkizDevice && buildCommand(overkizDevice, entry, effective);
       if (!command || (Array.isArray(command) && command.length === 0)) {
         throw new Error(`No Overkiz command for ${feature.external_id} = ${value}`);
       }
@@ -338,21 +354,11 @@ export function createAccount({
 
       // Optimistic echo: the event poller only confirms the move up to a polling
       // period later, and the UI would sit on the stale value until then. The
-      // real state overwrites this one as soon as it arrives. Clamped to the
-      // feature's own bounds — `buildCommand` already clamps what is actually
-      // sent to the device, so the echo must agree with it rather than show a
-      // raw, possibly out-of-range value until the next event poll. A
-      // non-numeric value publishes nothing: `NaN` would otherwise travel
-      // through as `null` and poison deduplication.
+      // real state overwrites this one as soon as it arrives.
       if (entry.stateName || entry.derive) {
-        const echoed = Number(value);
-        if (Number.isFinite(echoed)) {
-          const { min, max } = entry.gladysFeature;
-          const clamped = Math.min(max ?? echoed, Math.max(min ?? echoed, echoed));
-          await publisher.publish([
-            { device_feature_external_id: feature.external_id, state: clamped },
-          ]);
-        }
+        await publisher.publish([
+          { device_feature_external_id: feature.external_id, state: effective },
+        ]);
       }
     },
 

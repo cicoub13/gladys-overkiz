@@ -227,39 +227,87 @@ test('an out-of-range command echoes the clamped value, not the raw one', async 
     commands: ['open', 'close', 'stop', 'setClosure'],
     states: { 'core:ClosureState': 100 },
   });
-  const { gladys, handlers } = setup({ devices: [shutter] });
+  const { gladys, overkiz, handlers } = setup({ devices: [shutter] });
   await handlers.gladysConnected();
   gladys.calls.states.length = 0;
 
   const featureId = 'overkiz:overkiz:io-1234-5678-9012-12345678:position';
-  // `buildCommand` already clamps what is actually sent to the device (150 ->
-  // fully open); the echo must agree with it rather than show 150% until the
-  // next event poll.
+  // The value is clamped ONCE, before `buildCommand`: what is actually sent to
+  // the device (150 -> fully open, closure 0) and the echo must agree, rather
+  // than the echo alone showing 100 while the device received 150.
   await handlers.setValue(
     { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
     { external_id: featureId },
     150,
   );
 
+  assert.deepEqual(overkiz.calls.execute[0].command, { name: 'setClosure', parameters: [0] });
   assert.deepEqual(gladys.calls.states.flat(), [
     { device_feature_external_id: featureId, state: 100 },
   ]);
 });
 
-test('a non-numeric command value publishes no optimistic echo', async () => {
-  const { gladys, handlers } = setup();
+test('a non-numeric command value is rejected before anything is sent', async () => {
+  const { gladys, overkiz, handlers } = setup();
   await handlers.gladysConnected();
   gladys.calls.states.length = 0;
 
-  // `Number('not-a-number')` is NaN: it must not travel through as `null` and
-  // poison deduplication.
-  await handlers.setValue(
-    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Light' },
-    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:binary' },
-    'not-a-number',
+  // `Number('not-a-number')` is NaN: it must be rejected outright, not reach the
+  // device as an uncontrolled command (it used to send `off` regardless) nor
+  // travel through the echo as `null` and poison deduplication.
+  await assert.rejects(
+    () =>
+      handlers.setValue(
+        { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Light' },
+        { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:binary' },
+        'not-a-number',
+      ),
+    /No Overkiz command/,
   );
 
+  assert.equal(overkiz.calls.execute.length, 0, 'nothing was sent to the device');
   assert.equal(gladys.calls.states.length, 0);
+});
+
+test('a command value above the feature range is clamped before it is sent', async () => {
+  const { gladys, overkiz, handlers } = setup();
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  const featureId = 'overkiz:overkiz:io-1234-5678-9012-12345678:brightness';
+  // `buildCommand` does not clamp `brightness` itself: normalizing once before
+  // it is what keeps the command sent and the echo published from diverging.
+  await handlers.setValue(
+    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Light' },
+    { external_id: featureId },
+    150,
+  );
+
+  assert.deepEqual(overkiz.calls.execute[0].command, { name: 'setIntensity', parameters: [100] });
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: featureId, state: 100 },
+  ]);
+});
+
+test('a binary value above 1 turns the device on rather than off', async () => {
+  const { gladys, overkiz, handlers } = setup();
+  await handlers.gladysConnected();
+  gladys.calls.states.length = 0;
+
+  const featureId = 'overkiz:overkiz:io-1234-5678-9012-12345678:binary';
+  // Before normalizing once, `binary` = 2 sent `off` (anything not exactly 1
+  // maps to `off`) while echoing 1 -- the command and the echo disagreed. 2 is
+  // now clamped to the feature's max (1) before it reaches `buildCommand`.
+  await handlers.setValue(
+    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Light' },
+    { external_id: featureId },
+    2,
+  );
+
+  assert.deepEqual(overkiz.calls.execute[0].command, { name: 'on', parameters: [] });
+  assert.deepEqual(gladys.calls.states.flat(), [
+    { device_feature_external_id: featureId, state: 1 },
+  ]);
 });
 
 test('a command on an unknown device or feature is rejected', async () => {
