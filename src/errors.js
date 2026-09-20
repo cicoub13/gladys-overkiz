@@ -13,14 +13,40 @@
  */
 
 /**
- * Kinds NOT worth retrying: refused credentials do not become valid by
- * retrying, and a locked account only gets locked harder. Everything else —
- * including a cause the classifier below cannot name — gets the backoff: a
- * whitelist by regex can never be exhaustive, so an unrecognized network
- * failure (ENETUNREACH, a TLS error...) must default to "retry", not to
- * "give up silently".
+ * Kinds NOT worth retrying regardless of what the HTTP status says: refused
+ * credentials do not become valid by retrying, and a locked account only
+ * gets locked harder.
  */
 const FATAL_KINDS = new Set(['credentials', 'locked']);
+
+/**
+ * `ApiClient.request` formats its message as `Error <status> ...`; a raw
+ * axios error (the OAuth token exchange lets one through unwrapped) reads
+ * `... status code <n>`.
+ */
+function httpStatus(text) {
+  const match = /\berror (\d{3})\b/i.exec(text) ?? /status code (\d{3})\b/i.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Whether retrying is worth it. The HTTP status is the reliable signal, not
+ * the regex-named kind: a 4xx means the server understood the request and
+ * refused it, so retrying cannot help — and every retry here recreates the
+ * Overkiz client (see `overkiz.js#start`), which resets `overkiz-client`'s
+ * own anti-lockout backoff back to its floor. No status at all means the
+ * request never reached the server (DNS, TCP, TLS...), which is worth
+ * retrying: a whitelist by regex can never name every such failure, so an
+ * unrecognized one (ENETUNREACH, a TLS error...) must default to "retry",
+ * not to "give up silently".
+ */
+function isTransient(kind, text) {
+  if (FATAL_KINDS.has(kind)) {
+    return false;
+  }
+  const status = httpStatus(text);
+  return status === null || status >= 500;
+}
 
 /**
  * Flatten a thrown value (string, Error, anything) into readable text.
@@ -40,7 +66,11 @@ export function errorToText(err) {
 
 function classify(text) {
   const lowered = text.toLowerCase();
-  if (/too many|too_many_requests|\b429\b|temporarily blocked/.test(lowered)) {
+  if (
+    /too many|too_many_requests|\b429\b|temporarily blocked|api client locked|unbanned/.test(
+      lowered,
+    )
+  ) {
     return 'locked';
   }
   if (/\b401\b|\b403\b|authentication_error|bad credentials|invalid credentials/.test(lowered)) {
@@ -86,5 +116,5 @@ export function describeOverkizError(err) {
     en: `Connection to the Overkiz API failed: ${text}`,
     fr: `La connexion à l'API Overkiz a échoué : ${text}`,
   };
-  return { kind, transient: !FATAL_KINDS.has(kind), text, message };
+  return { kind, transient: isTransient(kind, text), text, message };
 }

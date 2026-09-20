@@ -594,6 +594,19 @@ test('a locked account is never retried either', async () => {
   assert.equal(timer.pending.length, 0);
 });
 
+test('a refusal the classifier cannot name is never retried either', async () => {
+  // Cozytouch's OAuth token exchange throws this shape on a bad password: a 4xx
+  // `classify()` does not recognize as "credentials". Retrying it would recreate
+  // the Overkiz client (see overkiz.js#start) on every attempt, resetting
+  // overkiz-client's own anti-lockout backoff each time -- the actual account-ban
+  // risk this fix closes.
+  const { handlers, timer } = setup({ startError: 'Error 400 invalid_grant' });
+
+  await handlers.configUpdated(VALID_CONFIG);
+
+  assert.equal(timer.pending.length, 0, 'a 4xx the classifier cannot name is still never retried');
+});
+
 test('shutdown cancels a pending retry', async () => {
   const { overkiz, handlers, timer } = setup({ startError: 'Error 503' });
   await handlers.configUpdated(VALID_CONFIG);

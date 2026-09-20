@@ -40,9 +40,29 @@ test('network failures are transient and worth retrying', () => {
 test('an unrecognized failure keeps the raw text so it can be reported', () => {
   const described = describeOverkizError('Error 418 I am a teapot');
   assert.equal(described.kind, 'unknown');
-  // A regex whitelist can never be exhaustive: a cause the classifier cannot
-  // name still gets retried, or an account would stay silent forever on any
-  // failure this module never learned to recognize.
-  assert.equal(described.transient, true);
+  // A 4xx means the server understood the request and refused it: retrying
+  // cannot help, whether or not the classifier can name the cause.
+  assert.equal(described.transient, false);
   assert.match(described.message.en, /I am a teapot/);
+});
+
+test('a refusal the classifier cannot name is still never retried', () => {
+  // `overkiz-client`'s OAuth token exchange (Cozytouch) throws this shape on a
+  // bad password: a 4xx the regex classifier does not recognize as
+  // "credentials". The HTTP status alone must be enough to stop the retry --
+  // recreating the client on every attempt (see overkiz.js#start) would
+  // otherwise reset overkiz-client's own anti-lockout backoff each time.
+  for (const raw of ['Error 400 invalid_grant', 'Request failed with status code 400']) {
+    const described = describeOverkizError(raw);
+    assert.equal(described.transient, false, `"${raw}" should not be retried`);
+  }
+});
+
+test('a failure with no HTTP status at all is still retried', () => {
+  // No status means the request never reached the server (DNS, TCP, TLS...):
+  // unlike a 4xx, retrying can genuinely help, and a whitelist by regex can
+  // never name every such failure in advance.
+  const described = describeOverkizError('write EPROTO 140:error:wrong version number');
+  assert.equal(described.kind, 'unknown');
+  assert.equal(described.transient, true);
 });
