@@ -485,6 +485,34 @@ test('a scan during a pending retry does not stack reconnections', async () => {
   assert.equal(overkiz.calls.start.length, 3, 'the config update, the scan, and one retry');
 });
 
+test('a login that goes through before the device fetch fails does not reset the backoff', async () => {
+  // `overkiz-client` reports `connect` as soon as the LOGIN succeeds, before
+  // the device list is fetched. A cloud accepting logins but failing that
+  // fetch used to reset the backoff at every attempt: one full login a minute
+  // for as long as the outage lasted — how an Overkiz account gets locked.
+  const { overkiz, handlers, timer } = setup({ startError: 'Error 503' });
+  const start = overkiz.start;
+  overkiz.start = async function (config) {
+    this.onConnectionChange(true);
+    return start.call(this, config);
+  };
+  await handlers.configUpdated(VALID_CONFIG);
+
+  const delays = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    delays.push(timer.pending.at(-1).delayMs);
+    await timer.runAll();
+  }
+  assert.deepEqual(delays, [60_000, 120_000, 240_000]);
+
+  // A connection that fully went through does reset it.
+  overkiz.startError = null;
+  await timer.runAll();
+  assert.equal(overkiz.connected, true);
+  overkiz.onConnectionChange(false);
+  assert.equal(timer.pending.at(-1).delayMs, 60_000);
+});
+
 test('refused credentials are never retried', async () => {
   const { handlers, timer } = setup({
     startError: 'Error 401 Bad credentials (AUTHENTICATION_ERROR)',
