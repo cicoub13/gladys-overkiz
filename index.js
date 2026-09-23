@@ -41,6 +41,18 @@ for (const [key, handler] of Object.entries(handlers.actions)) {
   gladys.onAction(key, handler);
 }
 
+// A promise nobody handles means state nobody owns any more: say so in the
+// integration logs, then let the Gladys supervisor restart a clean process.
+// The known source — the device refresh `overkiz-client` fires and forgets —
+// is contained in `src/overkiz.js`.
+process.on('unhandledRejection', (reason) => {
+  logger.error(
+    'Unhandled promise rejection, exiting so that Gladys restarts the integration:',
+    reason,
+  );
+  process.exit(1);
+});
+
 logger.info('Starting the Overkiz integration...');
 // Only a refused token rejects here, and Gladys refuses it while it boots too:
 // the SDK keeps reconnecting on its own. Exiting would spend the supervisor's

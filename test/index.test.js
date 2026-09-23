@@ -85,3 +85,27 @@ test('a token refused at startup is logged and the process stays up', async (t) 
   assert.equal(run.exitCode, undefined, `the process exited:\n${run.output}`);
   assert.match(run.output, /\[ERROR\] Initial connection to Gladys failed.*close code 4000/);
 });
+
+test('an unhandled rejection is logged with its reason, then the process exits', async (t) => {
+  // Its known sources are contained where they start (see overkiz.js); one
+  // left over means state nobody owns any more. The line must reach the
+  // integration logs through the logger before the supervisor restarts it.
+  const gladys = await startRefusingGladys();
+  // Loaded before index.js; fires on demand, once the integration is up.
+  const trigger = 'process.on("SIGUSR2", () => { Promise.reject(new Error("boom from test")); });';
+  const run = startIntegration({
+    port: gladys.address().port,
+    nodeArgs: ['--import', `data:text/javascript,${encodeURIComponent(trigger)}`],
+  });
+  t.after(() => {
+    run.child.kill('SIGKILL');
+    gladys.close();
+  });
+  await waitForOutput(run, /authentication refused by Gladys/);
+
+  run.child.kill('SIGUSR2');
+  const code = await run.exited;
+
+  assert.equal(code, 1);
+  assert.match(run.output, /\[ERROR\] Unhandled promise rejection.*boom from test/);
+});
