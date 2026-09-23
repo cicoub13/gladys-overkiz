@@ -180,6 +180,13 @@ export function createAccount({
   overkiz.onConnectionChange = (connected) => {
     linkUp = connected;
     if (connected) {
+      // `overkiz-client` also says `connect` as soon as the login inside
+      // `overkiz.start()` succeeds, before the device list is fetched. That
+      // attempt may still fail, and resetting the backoff on it meant one login
+      // a minute through a whole outage: `connect()` settles it instead.
+      if (!overkiz.connected) {
+        return;
+      }
       logger.info('Connected to the Overkiz API');
       lastError = null;
       // The session came back on its own — an expired token followed by a
@@ -229,8 +236,14 @@ export function createAccount({
     async connect() {
       try {
         mapAllDevices(await overkiz.start(config));
+        logger.info('Connected to the Overkiz API');
         lastError = null;
         linkUp = true;
+        // Only a connection that went all the way through resets the backoff,
+        // and supersedes an attempt a scan may have left pending.
+        cancelRetry?.();
+        cancelRetry = null;
+        retryDelayMs = RETRY_INITIAL_MS;
         return { status: 'ok', deviceCount: mappedDevices.size };
       } catch (err) {
         lastError = describeOverkizError(err);

@@ -205,8 +205,8 @@ export function makeFakeGladys({ config = {} } = {}) {
  */
 export function makeFakeTimer() {
   const pending = [];
-  const scheduleTimer = (fn) => {
-    const entry = { fn, cancelled: false };
+  const scheduleTimer = (fn, delayMs) => {
+    const entry = { fn, delayMs, cancelled: false };
     pending.push(entry);
     return () => {
       entry.cancelled = true;
