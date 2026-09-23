@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Overkiz, createOverkizClient } from '../src/overkiz.js';
+import { describeOverkizError } from '../src/errors.js';
 
 function makeFakeClient({ getDevicesError = null, devices = {} } = {}) {
   const calls = { getDevices: 0, removeAllListeners: 0, refreshPeriods: [], pollingPeriods: [] };
@@ -149,6 +150,19 @@ test('a failed device refresh inside overkiz-client is logged, not left to crash
   assert.deepEqual(unhandled, []);
   assert.equal(errors.length, 1);
   assert.equal(errors[0][1], 'Error 503 Service Unavailable');
+});
+
+test('every Overkiz request has a timeout', () => {
+  // axios waits forever by default: a stalled login held up every account
+  // behind it, and a stalled event fetch froze the poller for good.
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+  for (const server of ['somfy_europe', 'cozytouch']) {
+    const client = createOverkizClient({ ...CONFIG, server }, logger);
+    assert.equal(client.api.client.defaults.timeout, 30_000, server);
+  }
+  // What axios rejects with once it fires, flattened by overkiz-client: it
+  // must be retried like any other unreachable cloud.
+  assert.equal(describeOverkizError('timeout of 30000ms exceeded').transient, true);
 });
 
 test('connection changes are forwarded to onConnectionChange', async () => {

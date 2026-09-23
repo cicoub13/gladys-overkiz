@@ -11,6 +11,8 @@ import { Client as OverkizClient, Action, Command, Execution } from 'overkiz-cli
 import { createLogger } from '@gladysassistant/integration-sdk';
 
 const defaultLogger = createLogger({ name: 'overkiz' });
+// Per HTTP request; a Cozytouch login chains three of them.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export function createOverkizClient(config, logger) {
   // `refreshPeriod` is expressed in MINUTES by overkiz-client (it multiplies by
@@ -22,6 +24,12 @@ export function createOverkizClient(config, logger) {
     pollingPeriod: config.polling_period,
     refreshPeriod: 30,
   });
+  // axios waits forever by default, and overkiz-client sets no timeout: a
+  // stalled login held up every account behind it, and a stalled event fetch
+  // froze the poller for good. Not part of the public typings, like the
+  // polling setters `stop()` uses. The error it raises is classified as an
+  // unreachable cloud, so it is retried.
+  client.api.client.defaults.timeout = REQUEST_TIMEOUT_MS;
   // When the cloud reports a completed state refresh, the event poller calls
   // `refreshDevices()` without awaiting nor catching it: one failed GET there
   // is an unhandled rejection, and that ends the process. Its only other
