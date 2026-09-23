@@ -42,7 +42,9 @@ for (const [key, handler] of Object.entries(handlers.actions)) {
 }
 
 logger.info('Starting the Overkiz integration...');
+// Only a refused token rejects here, and Gladys refuses it while it boots too:
+// the SDK keeps reconnecting on its own. Exiting would spend the supervisor's
+// restart budget and leave the integration in ERROR after five of them.
 gladys.connect().catch((err) => {
-  logger.error('Initial connection failed', err);
-  process.exit(1);
+  logger.error('Initial connection to Gladys failed, the SDK keeps retrying:', err.message);
 });
