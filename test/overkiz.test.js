@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Overkiz } from '../src/overkiz.js';
+import { Overkiz, createOverkizClient } from '../src/overkiz.js';
 
 function makeFakeClient({ getDevicesError = null, devices = {} } = {}) {
   const calls = { getDevices: 0, removeAllListeners: 0, refreshPeriods: [], pollingPeriods: [] };
@@ -122,6 +122,33 @@ test('a failing state handler is logged, not left to crash the process', async (
 
   assert.equal(errors.length, 1);
   assert.match(errors[0][0], /io:\/\/1\/1/);
+});
+
+test('a failed device refresh inside overkiz-client is logged, not left to crash the process', async () => {
+  // When the cloud reports a completed state refresh, `overkiz-client` calls
+  // its own `refreshDevices()` without awaiting nor catching it: a failed GET
+  // there was an unhandled rejection, which ends the process.
+  const errors = [];
+  const logger = { debug() {}, info() {}, warn() {}, error: (...args) => errors.push(args) };
+  const client = createOverkizClient(CONFIG, logger);
+  client.listenerId = 'listener';
+  client.api.post = async () => [{ name: 'RefreshAllDevicesStatesCompletedEvent' }];
+  client.getDevices = async () => {
+    throw 'Error 503 Service Unavailable';
+  };
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await client.fetchEvents();
+    await new Promise((resolve) => setImmediate(resolve)); // let a rejection surface
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+
+  assert.deepEqual(unhandled, []);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0][1], 'Error 503 Service Unavailable');
 });
 
 test('connection changes are forwarded to onConnectionChange', async () => {
