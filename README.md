@@ -6,6 +6,14 @@ Built on the [Gladys external integration platform](https://gladysassistant.com/
 
 Up to **3 Overkiz accounts** can run side by side — brands keep separate accounts on separate servers, so a Somfy hub for the covers and an Atlantic Cozytouch account for a Thermor water heater is a common setup. Gladys installs an integration once (its selector is derived from the repository, so a second install is refused), which is why the accounts live inside it rather than in several instances.
 
+## Screenshots
+
+Somfy shutters and awning (position + open / stop / close), a light and an Atlantic / Thermor water heater on a dashboard:
+
+![Overkiz devices on a Gladys dashboard](docs/images/dashboard.png)
+
+_Captured on a Gladys 5.1 dashboard with simulated devices and states — values are illustrative._
+
 ## Supported devices
 
 | Overkiz device                                                                                       | Gladys features                                                   |
