@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased]
+
+## 1.6.0
+
+### Fixed
+
+- **A cloud hiccup during a device refresh no longer crashes the integration.**
+  Every 30 minutes the client library refreshes the device list on its own and
+  never catches a failure of that request: a cloud 5xx or a connection reset at
+  that moment ended the process. The failure is now logged and ignored.
+
+- **A stalled Overkiz request can no longer freeze an account.** Requests had no
+  deadline: a server that accepted the connection and never answered blocked the
+  connection of that account and of every account after it, and could stop
+  polling while the status stayed green. Every request now gives up after 30 s
+  and is retried like an unreachable cloud.
+
+- **The reconnection delay grows again during a partial outage.** When logins
+  worked but the device list did not, the delay was reset to one minute after
+  each successful login, so the integration logged in every minute for as long
+  as the outage lasted — the way an account gets locked. The delay is now only
+  reset once a connection fully succeeds.
+
+- **The integration waits for Gladys when it starts before it.** If Gladys was
+  still booting and refused the token, the process exited, and after five exits
+  the integration stayed in error. It now logs the refusal and keeps retrying.
+
+- **An unexpected error is logged before the integration restarts.** An error
+  nothing handled ended the process with a raw trace outside the integration
+  logs. It is now logged with its reason, then the process exits so Gladys
+  restarts it cleanly.
+
+## 1.5.3
+
+### Changed
+
+- Maintenance release: integration SDK 0.14.0, and a smaller, hardened Docker
+  image (base image pinned by digest, no package manager at runtime, image
+  scanned before publishing). No functional change.
+
 ## 1.5.2
 
 ### Fixed
