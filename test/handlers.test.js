@@ -3,12 +3,14 @@
 // command routing, driven entirely through fake collaborators.
 // -----------------------------------------------------------------------------
 
-import { test } from 'node:test';
+import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLogger } from '@gladysassistant/integration-sdk';
+import { createLogger, GladysApiError } from '@gladysassistant/integration-sdk';
 import { createHandlers } from '../src/handlers.js';
 import {
-  makeFakeGladys,
+  createTestGladys,
+  assertNothingRefused,
+  assertNoTestGladysRefused,
   makeFakeOverkizPool,
   makeFakeTimer,
   makeFakeClock,
@@ -36,7 +38,7 @@ function setup({
   accounts = {},
   logger: loggerOverride = logger,
 } = {}) {
-  const gladys = makeFakeGladys({ config });
+  const gladys = createTestGladys({ config });
   const pool = makeFakeOverkizPool({ 1: { devices, startError }, ...accounts });
   const scheduleTimer = makeFakeTimer();
   const clock = makeFakeClock();
@@ -51,13 +53,30 @@ function setup({
   return { gladys, overkiz: pool.get(1), pool, handlers, timer: scheduleTimer, clock };
 }
 
+afterEach(assertNoTestGladysRefused);
+
+/** The state batches Gladys accepted, one per POST /state. */
+const stateBatches = (gladys) => gladys.fake.bodies('POST', '/state').map((body) => body.states);
+
+/** Forget what Gladys received so far, to assert on what comes next only. */
+const forgetReceived = (gladys) => {
+  assertNothingRefused(gladys);
+  gladys.fake.requests.length = 0;
+};
+
+/** Make every `publishStates` call fail like a rate-limited host; returns the mock. */
+const failPublishes = (t, gladys) =>
+  t.mock.method(gladys, 'publishStates', async () => {
+    throw new GladysApiError(429, 'TOO_MANY_REQUESTS', 'RATE_LIMIT_EXCEEDED: max 300 states');
+  });
+
 test('an incomplete configuration reports a status instead of connecting', async () => {
   const { gladys, overkiz, handlers } = setup({ config: { server: 'somfy_europe' } });
 
   await handlers.gladysConnected();
 
   assert.equal(overkiz.calls.start.length, 0);
-  const [status] = gladys.calls.connectionStatus;
+  const [status] = gladys.fake.connectionStatuses;
   assert.equal(status.connected, false);
   assert.match(status.message.fr, /Configuration/);
 });
@@ -70,17 +89,17 @@ test('a complete configuration connects, publishes the devices and their states'
   assert.equal(overkiz.calls.start.length, 1);
   assert.equal(overkiz.calls.start[0].username, 'a@b.c');
 
-  const [discovered] = gladys.calls.discovered;
+  const discovered = gladys.fake.discoveredDevices;
   assert.equal(discovered.length, 1);
   assert.equal(discovered[0].features.length, 2);
 
-  const published = gladys.calls.states.flat();
+  const published = gladys.fake.states;
   assert.deepEqual(
     published.map((s) => s.state).sort(),
     [0, 40], // OnOffState 'off' -> 0, LightIntensityState 40
   );
 
-  assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
 });
 
 test('a cover with a position but no open/close command logs its raw commands', async () => {
@@ -118,13 +137,13 @@ test('a cover with both a position and an open/close command logs nothing', asyn
 test('unchanged states are not republished', async () => {
   const { gladys, overkiz, handlers } = setup();
   await handlers.gladysConnected();
-  const publishedBefore = gladys.calls.states.length;
+  const publishedBefore = stateBatches(gladys).length;
 
   overkiz.connected = true;
   await handlers.scan();
 
   assert.equal(
-    gladys.calls.states.length,
+    stateBatches(gladys).length,
     publishedBefore,
     'no extra publish for identical states',
   );
@@ -133,28 +152,28 @@ test('unchanged states are not republished', async () => {
 test('an Overkiz state event publishes only the values that changed', async () => {
   const { gladys, overkiz, handlers } = setup();
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   await overkiz.onStates(overkiz.devices[0], [
     { name: 'core:OnOffState', value: 'on' }, // changed: 0 -> 1
     { name: 'core:LightIntensityState', value: 40 }, // unchanged
   ]);
 
-  assert.equal(gladys.calls.states.length, 1);
-  assert.equal(gladys.calls.states[0].length, 1);
-  assert.equal(gladys.calls.states[0][0].state, 1);
+  assert.equal(stateBatches(gladys).length, 1);
+  assert.equal(stateBatches(gladys)[0].length, 1);
+  assert.equal(stateBatches(gladys)[0][0].state, 1);
 });
 
 test('a state event for an unknown device is ignored', async () => {
   const { gladys, overkiz, handlers } = setup();
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   await overkiz.onStates(makeOverkizDevice({ deviceURL: 'io://other/1', uiClass: 'Light' }), [
     { name: 'core:OnOffState', value: 'on' },
   ]);
 
-  assert.equal(gladys.calls.states.length, 0);
+  assert.equal(stateBatches(gladys).length, 0);
 });
 
 test('a command is translated into an Overkiz execution', async () => {
@@ -167,10 +186,10 @@ test('a command is translated into an Overkiz execution', async () => {
   await handlers.gladysConnected();
 
   const gladysDevice = {
-    external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678',
+    external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678',
     name: 'Shutter',
   };
-  const feature = { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:position' };
+  const feature = { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678:position' };
   await handlers.setValue(gladysDevice, feature, 70);
 
   assert.equal(overkiz.calls.execute.length, 1);
@@ -186,20 +205,18 @@ test('a command echoes the new value back immediately', async () => {
   });
   const { gladys, handlers } = setup({ devices: [shutter] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
-  const featureId = 'overkiz:overkiz:io-1234-5678-9012-12345678:position';
+  const featureId = 'ext:overkiz:overkiz:io-1234-5678-9012-12345678:position';
   await handlers.setValue(
-    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
+    { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
     { external_id: featureId },
     70,
   );
 
   // Without this the UI would sit on the stale position for a whole polling
   // period.
-  assert.deepEqual(gladys.calls.states.flat(), [
-    { device_feature_external_id: featureId, state: 70 },
-  ]);
+  assert.deepEqual(gladys.fake.states, [{ device_feature_external_id: featureId, state: 70 }]);
 });
 
 test('a write-only command publishes no optimistic state', async () => {
@@ -210,15 +227,15 @@ test('a write-only command publishes no optimistic state', async () => {
   });
   const { gladys, handlers } = setup({ devices: [shutter] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   await handlers.setValue(
-    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
-    { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:state' },
+    { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678', name: 'Shutter' },
+    { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678:state' },
     1,
   );
 
-  assert.equal(gladys.calls.states.length, 0, 'the state feature has no Overkiz counterpart');
+  assert.equal(stateBatches(gladys).length, 0, 'the state feature has no Overkiz counterpart');
 });
 
 test('a command on an unknown device or feature is rejected', async () => {
@@ -226,14 +243,14 @@ test('a command on an unknown device or feature is rejected', async () => {
   await handlers.gladysConnected();
 
   await assert.rejects(
-    () => handlers.setValue({ external_id: 'overkiz:overkiz:nope' }, { external_id: 'x' }, 1),
+    () => handlers.setValue({ external_id: 'ext:overkiz:overkiz:nope' }, { external_id: 'x' }, 1),
     /Unknown Overkiz device/,
   );
   await assert.rejects(
     () =>
       handlers.setValue(
-        { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678' },
-        { external_id: 'overkiz:overkiz:io-1234-5678-9012-12345678:nope' },
+        { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678' },
+        { external_id: 'ext:overkiz:overkiz:io-1234-5678-9012-12345678:nope' },
         1,
       ),
     /Unknown feature/,
@@ -246,7 +263,7 @@ test('discovered devices opt out of Gladys polling', () => {
   const { gladys, handlers } = setup();
   return handlers.gladysConnected().then(() => {
     assert.equal(handlers.poll, undefined);
-    for (const device of gladys.calls.discovered.flat()) {
+    for (const device of gladys.fake.discoveredDevices) {
       assert.equal(device.should_poll, false);
     }
   });
@@ -271,7 +288,7 @@ test('losing the Overkiz connection is reported to Gladys', async () => {
 
   overkiz.onConnectionChange(false);
 
-  const status = gladys.calls.connectionStatus.at(-1);
+  const status = gladys.fake.connectionStatus;
   assert.equal(status.connected, false);
   assert.match(status.message.fr, /Déconnecté/);
 });
@@ -329,20 +346,20 @@ test('testing the connection asks for the missing configuration first', async ()
 
 // --- A failed publish must not lose the state --------------------------------
 
-test('states are only remembered once Gladys accepted them', async () => {
+test('states are only remembered once Gladys accepted them', async (t) => {
   // The regression this guards: the values were recorded before publishing, so
   // a rejected batch was skipped forever by the deduplication.
   const { gladys, handlers, timer } = setup();
-  gladys.publishError = new Error('Error 429 Too Many Requests');
+  const publishStates = failPublishes(t, gladys);
 
   await handlers.gladysConnected();
-  assert.equal(gladys.calls.states.length, 0, 'nothing got through');
+  assert.equal(stateBatches(gladys).length, 0, 'nothing got through');
   assert.equal(timer.pending.length, 1, 'a resynchronization was scheduled');
 
-  gladys.publishError = null;
+  publishStates.mock.restore();
   await timer.runAll();
 
-  const published = gladys.calls.states.flat();
+  const published = gladys.fake.states;
   assert.deepEqual(
     published.map((s) => s.state).sort(),
     [0, 40],
@@ -350,9 +367,9 @@ test('states are only remembered once Gladys accepted them', async () => {
   );
 });
 
-test('a failed publish schedules a single resynchronization', async () => {
+test('a failed publish schedules a single resynchronization', async (t) => {
   const { gladys, overkiz, handlers, timer } = setup();
-  gladys.publishError = new Error('Error 429 Too Many Requests');
+  failPublishes(t, gladys);
   await handlers.gladysConnected();
 
   await overkiz.onStates(overkiz.devices[0], [{ name: 'core:OnOffState', value: 'on' }]);
@@ -360,17 +377,17 @@ test('a failed publish schedules a single resynchronization', async () => {
   assert.equal(timer.pending.length, 1, 'failures coalesce into one pending replay');
 });
 
-test('shutdown cancels a pending resynchronization', async () => {
+test('shutdown cancels a pending resynchronization', async (t) => {
   const { gladys, handlers, timer } = setup();
-  gladys.publishError = new Error('Error 429 Too Many Requests');
+  const publishStates = failPublishes(t, gladys);
   await handlers.gladysConnected();
   assert.equal(timer.pending.length, 1);
 
   handlers.shutdown('SIGTERM');
-  gladys.publishError = null;
+  publishStates.mock.restore();
   await timer.runAll();
 
-  assert.equal(gladys.calls.states.length, 0, 'the cancelled replay did not run');
+  assert.equal(stateBatches(gladys).length, 0, 'the cancelled replay did not run');
 });
 
 // --- Reconnection: never re-authenticate for nothing --------------------------
@@ -385,14 +402,14 @@ test('a Gladys reconnection reuses the existing Overkiz session', async () => {
   await handlers.gladysConnected();
 
   assert.equal(overkiz.calls.start.length, 1, 'no second login');
-  assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
 });
 
 test('a Gladys reconnection after a credentials change does reconnect', async () => {
   const { gladys, overkiz, handlers } = setup();
   await handlers.gladysConnected();
 
-  gladys.config = { ...VALID_CONFIG, password: 'rotated' };
+  gladys.fake.config = { ...VALID_CONFIG, password: 'rotated' };
   await handlers.gladysConnected();
 
   assert.equal(overkiz.calls.start.length, 2);
@@ -558,9 +575,9 @@ test('publishing more than 300 states a minute pauses instead of being rejected'
 
   await handlers.gladysConnected();
 
-  assert.equal(gladys.calls.states.length, 4, '400 states sent as 4 batches');
+  assert.equal(stateBatches(gladys).length, 4, '400 states sent as 4 batches');
   assert.ok(
-    gladys.calls.states.every((batch) => batch.length <= 100),
+    stateBatches(gladys).every((batch) => batch.length <= 100),
     'no batch exceeds the 100-per-request limit',
   );
   assert.equal(clock.sleeps.length, 1, 'the 4th batch waited for the window to slide');
@@ -589,17 +606,17 @@ test('a cover pushes its battery states like any other', async () => {
   const { gladys, overkiz, handlers } = setup({ devices: [cover] });
   await handlers.gladysConnected();
 
-  const deviceId = 'overkiz:overkiz:io-1234-5678-9012-12345678';
-  assert.deepEqual(gladys.calls.states.flat(), [
+  const deviceId = 'ext:overkiz:overkiz:io-1234-5678-9012-12345678';
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${deviceId}:position`, state: 70 },
     { device_feature_external_id: `${deviceId}:battery`, state: 90 },
     { device_feature_external_id: `${deviceId}:battery_low`, state: 0 },
   ]);
 
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
   cover.states.find((s) => s.name === 'core:SensorDefectState').value = 'lowBattery';
   await overkiz.onStates(cover, [{ name: 'core:SensorDefectState', value: 'lowBattery' }]);
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${deviceId}:battery_low`, state: 1 },
   ]);
 });
@@ -619,29 +636,29 @@ test('a solar Velux cover pushes its discrete battery level', async () => {
   const { gladys, overkiz, handlers } = setup({ devices: [cover] });
   await handlers.gladysConnected();
 
-  const deviceId = 'overkiz:overkiz:io-1234-5678-9012-12345678';
-  assert.deepEqual(gladys.calls.states.flat(), [
+  const deviceId = 'ext:overkiz:overkiz:io-1234-5678-9012-12345678';
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${deviceId}:position`, state: 0 },
     { device_feature_external_id: `${deviceId}:battery_low`, state: 0 },
   ]);
 
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
   cover.states.find((s) => s.name === 'core:BatteryDiscreteLevelState').value = 'low';
   await overkiz.onStates(cover, [{ name: 'core:BatteryDiscreteLevelState', value: 'low' }]);
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${deviceId}:battery_low`, state: 1 },
   ]);
 });
 
 // --- Water heaters -----------------------------------------------------------
 
-const WATER_HEATER_ID = 'overkiz:overkiz:io-1111-2222-3333-44444444-1';
+const WATER_HEATER_ID = 'ext:overkiz:overkiz:io-1111-2222-3333-44444444-1';
 
 test('a derived feature is recomputed when any of its states changes', async () => {
   const heater = makeWaterHeater();
   const { gladys, overkiz, handlers } = setup({ devices: [heater] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   // `overkiz-client` writes the new values into the device before it emits, so
   // the fake reproduces that ordering.
@@ -653,19 +670,19 @@ test('a derived feature is recomputed when any of its states changes', async () 
   // The mode reads `io:DHWModeState`, but the appliance's absence flag alone
   // flips it to the Gladys AWAY mode.
   await emit('io:AwayModeDurationState', 'always');
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 5 },
   ]);
 
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
   await emit('io:AwayModeDurationState', '0');
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 2 },
   ]);
 
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
   await emit('io:DHWModeState', 'autoMode');
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 1 },
   ]);
 });
@@ -674,7 +691,7 @@ test('a batch touching both states of a derived feature publishes it once', asyn
   const heater = makeWaterHeater();
   const { gladys, overkiz, handlers } = setup({ devices: [heater] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   heater.states.find((s) => s.name === 'io:DHWModeState').value = 'autoMode';
   heater.states.find((s) => s.name === 'io:AwayModeDurationState').value = '0';
@@ -683,7 +700,7 @@ test('a batch touching both states of a derived feature publishes it once', asyn
     { name: 'io:AwayModeDurationState', value: '0' },
   ]);
 
-  assert.deepEqual(gladys.calls.states.flat(), [
+  assert.deepEqual(gladys.fake.states, [
     { device_feature_external_id: `${WATER_HEATER_ID}:mode`, state: 1 },
   ]);
 });
@@ -694,7 +711,7 @@ test('a water heater publishes its initial states on connection', async () => {
   await handlers.gladysConnected();
 
   const published = Object.fromEntries(
-    gladys.calls.states.flat().map((s) => [s.device_feature_external_id, s.state]),
+    gladys.fake.states.map((s) => [s.device_feature_external_id, s.state]),
   );
   assert.deepEqual(published, {
     [`${WATER_HEATER_ID}:mode`]: 2,
@@ -711,7 +728,7 @@ test('a mode command sends the whole ordered sequence and echoes the mode', asyn
   const heater = makeWaterHeater();
   const { gladys, overkiz, handlers } = setup({ devices: [heater] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   const featureId = `${WATER_HEATER_ID}:mode`;
   await handlers.setValue(
@@ -726,9 +743,7 @@ test('a mode command sends the whole ordered sequence and echoes the mode', asyn
     { name: 'setDHWMode', parameters: ['autoMode'] },
   ]);
   // A derived feature echoes too: it has feedback, just not a single state.
-  assert.deepEqual(gladys.calls.states.flat(), [
-    { device_feature_external_id: featureId, state: 1 },
-  ]);
+  assert.deepEqual(gladys.fake.states, [{ device_feature_external_id: featureId, state: 1 }]);
 });
 
 test('a boost command is refused when the appliance cannot boost', async () => {
@@ -759,7 +774,7 @@ test('the dump action asks for a connection first', async () => {
 
 test('the dump action writes every device to the logs', async () => {
   const lines = [];
-  const gladys = makeFakeGladys({ config: VALID_CONFIG });
+  const gladys = createTestGladys({ config: VALID_CONFIG });
   const pool = makeFakeOverkizPool({ 1: { devices: [makeWaterHeater()] } });
   const handlers = createHandlers({
     gladys,
@@ -797,13 +812,13 @@ test('creating a device publishes its states, which discovery could not', async 
   const heater = makeWaterHeater();
   const { gladys, handlers } = setup({ devices: [heater] });
   await handlers.gladysConnected();
-  assert.ok(gladys.calls.states.flat().length > 0, 'discovery published them into the void');
-  gladys.calls.states.length = 0;
+  assert.ok(gladys.fake.states.length > 0, 'discovery published them into the void');
+  forgetReceived(gladys);
 
   await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
 
   const published = Object.fromEntries(
-    gladys.calls.states.flat().map((s) => [s.device_feature_external_id, s.state]),
+    gladys.fake.states.map((s) => [s.device_feature_external_id, s.state]),
   );
   assert.deepEqual(published, {
     [`${WATER_HEATER_ID}:mode`]: 2,
@@ -819,11 +834,11 @@ test('creating one device does not republish the others', async () => {
   const heater = makeWaterHeater();
   const { gladys, handlers } = setup({ devices: [heater, makeLight()] });
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
   await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
 
-  const ids = gladys.calls.states.flat().map((s) => s.device_feature_external_id);
+  const ids = gladys.fake.states.map((s) => s.device_feature_external_id);
   assert.ok(ids.length > 0);
   assert.ok(
     ids.every((id) => id.startsWith(WATER_HEATER_ID)),
@@ -834,11 +849,11 @@ test('creating one device does not republish the others', async () => {
 test('creating a device Overkiz does not know about is ignored', async () => {
   const { gladys, handlers } = setup();
   await handlers.gladysConnected();
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
 
-  await handlers.deviceCreated({ external_id: 'overkiz:overkiz:not-ours' });
+  await handlers.deviceCreated({ external_id: 'ext:overkiz:overkiz:not-ours' });
 
-  assert.equal(gladys.calls.states.length, 0);
+  assert.equal(stateBatches(gladys).length, 0);
 });
 
 test('deleting a device lets a later recreation publish again', async () => {
@@ -847,8 +862,8 @@ test('deleting a device lets a later recreation publish again', async () => {
   await handlers.gladysConnected();
 
   await handlers.deviceDeleted({ external_id: WATER_HEATER_ID });
-  gladys.calls.states.length = 0;
+  forgetReceived(gladys);
   await handlers.deviceCreated({ external_id: WATER_HEATER_ID });
 
-  assert.equal(gladys.calls.states.flat().length, 6, 'the values were not remembered as published');
+  assert.equal(gladys.fake.states.length, 6, 'the values were not remembered as published');
 });
