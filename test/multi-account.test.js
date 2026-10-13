@@ -5,12 +5,13 @@
 // for the covers, and a Cozytouch account for an Atlantic/Thermor water heater.
 // -----------------------------------------------------------------------------
 
-import { test } from 'node:test';
+import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createHandlers } from '../src/handlers.js';
 import {
-  makeFakeGladys,
+  createTestGladys,
+  assertNoTestGladysRefused,
   makeFakeOverkizPool,
   makeFakeTimer,
   makeFakeClock,
@@ -19,6 +20,8 @@ import {
 } from './helpers.js';
 
 const logger = createLogger({ level: 'silent' });
+
+afterEach(assertNoTestGladysRefused);
 
 const SOMFY = { server: 'somfy_europe', username: 'somfy@example.com', password: 'x' };
 const COZYTOUCH = { server: 'cozytouch', username: 'thermor@example.com', password: 'y' };
@@ -44,7 +47,7 @@ function makeSwitch(deviceURL) {
 }
 
 function setup({ config, accounts = {}, logger: loggerOverride = logger } = {}) {
-  const gladys = makeFakeGladys({ config });
+  const gladys = createTestGladys({ config });
   const pool = makeFakeOverkizPool(accounts);
   const timer = makeFakeTimer();
   const clock = makeFakeClock();
@@ -76,7 +79,7 @@ test('the discovery list holds the union of every account, in slot order', async
 
   await handlers.gladysConnected();
 
-  const published = gladys.calls.discovered.at(-1);
+  const published = gladys.fake.discoveredDevices;
   assert.deepEqual(
     published.map((device) => device.name),
     ['Cover', 'Switch'],
@@ -100,13 +103,13 @@ test('a failing account does not take the working one down with it', async () =>
 
   await handlers.gladysConnected();
 
-  const published = gladys.calls.discovered.at(-1);
+  const published = gladys.fake.discoveredDevices;
   assert.deepEqual(
     published.map((device) => device.name),
     ['Cover'],
     "the working account's devices stay discoverable",
   );
-  const status = gladys.calls.connectionStatus.at(-1);
+  const status = gladys.fake.connectionStatus;
   assert.equal(status.connected, false);
   assert.equal(status.message.fr, 'Compte 2 (Atlantic Cozytouch) : identifiants refusés');
 });
@@ -114,7 +117,7 @@ test('a failing account does not take the working one down with it', async () =>
 test('a command executes on the account that owns the device, and only there', async () => {
   const { gladys, pool, handlers } = setupTwoAccounts();
   await handlers.gladysConnected();
-  const [, switchDevice] = gladys.calls.discovered.at(-1);
+  const [, switchDevice] = gladys.fake.discoveredDevices;
 
   await handlers.setValue(switchDevice, switchDevice.features[0], 1);
 
@@ -189,22 +192,21 @@ test('emptying a slot stops it and removes its devices', async () => {
 
   assert.equal(pool.get(2).calls.stopped, 1);
   assert.deepEqual(
-    gladys.calls.discovered.at(-1).map((device) => device.name),
+    gladys.fake.discoveredDevices.map((device) => device.name),
     ['Cover'],
   );
-  assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
 });
 
 test('putting a removed account back republishes its states', async () => {
   const { gladys, handlers } = setupTwoAccounts();
   await handlers.gladysConnected();
   await handlers.configUpdated(makeMultiConfig({ 1: SOMFY }));
-  const before = gladys.calls.states.flat().length;
+  const before = gladys.fake.states.length;
 
   await handlers.configUpdated(makeMultiConfig({ 1: SOMFY, 2: COZYTOUCH }));
 
-  const republished = gladys.calls.states
-    .flat()
+  const republished = gladys.fake.states
     .slice(before)
     .filter((state) => state.device_feature_external_id.includes('2222-2222-2222'));
   assert.ok(republished.length > 0, 'its values were forgotten when it left, so they come back');
@@ -238,7 +240,7 @@ test('the same account in two slots opens a single session', async () => {
 
   assert.equal(pool.get(1).calls.start.length, 1);
   assert.equal(pool.get(3).calls.start.length, 0);
-  assert.equal(gladys.calls.connectionStatus.at(-1).connected, true);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
   assert.ok(warnings.some((line) => /same credentials as account 1/.test(line)));
 });
 
@@ -251,7 +253,7 @@ test('two accounts exposing the same hub publish the device once', async () => {
 
   await handlers.gladysConnected();
 
-  assert.equal(gladys.calls.discovered.at(-1).length, 1);
+  assert.equal(gladys.fake.discoveredDevices.length, 1);
 });
 
 test('a half filled slot blocks nothing but is reported', async () => {
@@ -263,8 +265,8 @@ test('a half filled slot blocks nothing but is reported', async () => {
   await handlers.gladysConnected();
 
   assert.equal(pool.get(2).calls.start.length, 0);
-  assert.equal(gladys.calls.discovered.at(-1).length, 1, 'the complete account still works');
-  const status = gladys.calls.connectionStatus.at(-1);
+  assert.equal(gladys.fake.discoveredDevices.length, 1, 'the complete account still works');
+  const status = gladys.fake.connectionStatus;
   assert.equal(status.connected, false);
   assert.match(status.message.fr, /Compte 2 .*email ou mot de passe manquant/);
 });
@@ -352,10 +354,10 @@ test('the SDK external id helpers are called on the client, never detached', asy
   await handlers.gladysConnected();
 
   assert.ok(!sawDetachedCall, 'externalIds must keep its `this`');
-  assert.equal(gladys.calls.discovered.at(-1).length, 2);
+  assert.equal(gladys.fake.discoveredDevices.length, 2);
   assert.deepEqual(
-    gladys.calls.connectionStatus.at(-1),
-    { connected: true, message: undefined },
+    gladys.fake.connectionStatus,
+    { connected: true },
     'both accounts are connected',
   );
 });
@@ -381,12 +383,12 @@ test('a device the mapping chokes on costs only that device', async () => {
   await handlers.gladysConnected();
 
   assert.deepEqual(
-    gladys.calls.discovered.at(-1).map((device) => device.name),
+    gladys.fake.discoveredDevices.map((device) => device.name),
     ['Cover', 'Switch'],
     'the healthy devices of both accounts are still discovered',
   );
   assert.equal(
-    gladys.calls.connectionStatus.at(-1).connected,
+    gladys.fake.connectionStatus.connected,
     true,
     'one unmappable device is not a connection failure',
   );
@@ -398,7 +400,7 @@ test('a device the mapping chokes on costs only that device', async () => {
 
 test('each account gets a logger prefixed with its slot for its Overkiz session', async () => {
   const created = [];
-  const gladys = makeFakeGladys({ config: makeMultiConfig({ 1: SOMFY, 2: COZYTOUCH }) });
+  const gladys = createTestGladys({ config: makeMultiConfig({ 1: SOMFY, 2: COZYTOUCH }) });
   const pool = makeFakeOverkizPool({
     1: { devices: [makeCover('io://1111-1111-1111/1')] },
     2: { devices: [makeSwitch('io://2222-2222-2222/2')] },

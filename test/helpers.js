@@ -1,9 +1,12 @@
 // -----------------------------------------------------------------------------
-// Shared test fixtures: fake Overkiz devices and a fake Gladys SDK client.
+// Shared test fixtures: fake Overkiz devices and fake Gladys SDK clients.
 //
 // Deliberately plain objects rather than a mocking library — the surfaces the
 // integration uses are small, and a hand-written fake documents the contract.
 // -----------------------------------------------------------------------------
+
+import assert from 'node:assert/strict';
+import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 
 /**
  * Build an object shaped like an `overkiz-client` Device.
@@ -135,14 +138,10 @@ export function makeAtlanticModbuslinkWaterHeater(overrides = {}) {
 }
 
 /**
- * Stand-in for the external id helpers of the SDK client.
- *
- * Kept METHOD-shaped, and `externalIds` deliberately reaches `this.externalId`
- * exactly like `GladysIntegration` does: a caller that passes `gladys.externalIds`
- * around detached from its object gets `this.externalId is not a function` here
- * too, instead of the fake quietly working where production crashes.
+ * Stand-in for the external id helpers of the SDK client, METHOD-shaped like
+ * `GladysIntegration`'s: `externalIds` reaches `this.externalId`.
  */
-export const externalIdHelpers = {
+const externalIdHelpers = {
   externalId(suffix) {
     return `overkiz:${suffix}`;
   },
@@ -163,37 +162,51 @@ export function makeExternalIds(type, platformId) {
   return externalIdHelpers.externalIds(type, platformId);
 }
 
+const testGladysInstances = [];
+
 /**
- * Fake GladysIntegration recording every call made by the handlers.
+ * The SDK fake Gladys (`createFakeGladys`: a real `GladysIntegration` with the
+ * host API checks), under the selector Gladys gives the integration. It
+ * refuses with a 400 what the host API would refuse — external_id prefix,
+ * feature category/type/unit, state value — but the publisher swallows a
+ * refused batch and schedules a replay, so a test file using it runs
+ * `afterEach(assertNoTestGladysRefused)` to make such a refusal fail the test.
  */
-export function makeFakeGladys({ config = {} } = {}) {
-  const calls = {
-    discovered: [],
-    states: [],
-    connectionStatus: [],
-  };
+export function createTestGladys(options = {}) {
+  const gladys = createFakeGladys({ selector: 'overkiz', ...options });
+  testGladysInstances.push(gladys);
+  return gladys;
+}
+
+/** Fail if Gladys refused a request. */
+export function assertNothingRefused(gladys) {
+  const refused = gladys.fake.requests.filter((request) => request.status !== 200);
+  assert.deepEqual(refused, [], 'Gladys refused a request');
+}
+
+/** Check, then forget, every Gladys `createTestGladys` built so far. */
+export function assertNoTestGladysRefused() {
+  for (const gladys of testGladysInstances.splice(0)) {
+    assertNothingRefused(gladys);
+  }
+}
+
+/**
+ * Hand-written stand-in for the only call `src/publisher.js` makes, for its
+ * unit tests: they publish short ids (`f0`) the SDK fake would refuse for
+ * their missing `ext:<selector>:` prefix, and make Gladys fail on demand.
+ */
+export function makeFakeGladys() {
+  const calls = { states: [] };
   return {
     calls,
-    config,
     /** Set to an Error to make the next `publishStates` calls reject. */
     publishError: null,
-    ...externalIdHelpers,
-    async getConfig() {
-      return this.config;
-    },
-    async publishDiscoveredDevices(devices) {
-      calls.discovered.push(devices);
-      return { success: true };
-    },
     async publishStates(states) {
       if (this.publishError) {
         throw this.publishError;
       }
       calls.states.push(states);
-      return { success: true };
-    },
-    async setConnectionStatus(connected, message) {
-      calls.connectionStatus.push({ connected, message });
       return { success: true };
     },
   };

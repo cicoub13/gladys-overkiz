@@ -77,10 +77,13 @@ are in `CHANGELOG.md`.
 ## Tests
 
 - Everything is injected (`gladys`, `createOverkiz`, `scheduleTimer`, `now`, `sleep`); fakes in
-  `test/helpers.js`: `makeFakeGladys` (records `calls`, `publishError`), `makeFakeOverkiz(Pool)`,
-  `makeFakeTimer` (`runAll()` fires retries), `makeFakeClock`, `makeMultiConfig`,
-  `makeOverkizDevice`, `makeWaterHeater`. `externalIdHelpers` keeps `externalIds` method-shaped
-  so a detached `gladys.externalIds` fails in tests as in prod (hub binds it for that reason).
+  `test/helpers.js`: `createTestGladys` (the SDK `createFakeGladys`, selector `overkiz`, so ids
+  are `ext:overkiz:overkiz:<pid>`; files using it run `afterEach(assertNoTestGladysRefused)`
+  because the publisher swallows a 400), `makeFakeGladys` (hand fake for `publisher.test.js`
+  only: short ids, `publishError`), `makeFakeOverkiz(Pool)`, `makeFakeTimer` (`runAll()` fires
+  retries), `makeFakeClock`, `makeMultiConfig`, `makeOverkizDevice`, `makeWaterHeater`. A Gladys
+  failure is `t.mock.method(gladys, 'publishStates', ...)`. The hub binds `gladys.externalIds`: a
+  detached call throws on the real client.
 - `test/overkiz.test.js` fakes the raw `overkiz-client`; `test/index.test.js` spawns the real
   `index.js` against a fake HTTP Gladys; `test/multi-account.test.js` covers the union/budget.
 - `npm run coverage` floors: lines 85 %, branches 75 %.

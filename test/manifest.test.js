@@ -13,7 +13,7 @@ import {
   accountFieldKey,
 } from '../src/config.js';
 import { createHandlers } from '../src/handlers.js';
-import { makeFakeGladys, makeFakeOverkizPool } from './helpers.js';
+import { createTestGladys, makeFakeOverkizPool } from './helpers.js';
 
 const manifest = JSON.parse(
   await readFile(new URL('../gladys-assistant-integration.json', import.meta.url), 'utf8'),
@@ -23,7 +23,7 @@ const field = (key) => manifest.config_schema.find((f) => f.key === key);
 
 function makeHandlers() {
   return createHandlers({
-    gladys: makeFakeGladys(),
+    gladys: createTestGladys(),
     createOverkiz: makeFakeOverkizPool().createOverkiz,
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   });
