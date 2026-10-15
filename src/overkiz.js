@@ -7,12 +7,15 @@
 // updates through event polling.
 // -----------------------------------------------------------------------------
 
+import https from 'node:https';
 import { Client as OverkizClient, Action, Command, Execution } from 'overkiz-client';
 import { createLogger } from '@gladysassistant/integration-sdk';
 
 const defaultLogger = createLogger({ name: 'overkiz' });
 // Per HTTP request; a Cozytouch login chains three of them.
 const REQUEST_TIMEOUT_MS = 30_000;
+// Longest pause of the event poller after a failed fetch.
+const MAX_POLLING_ERROR_LOCK_S = 60;
 
 export function createOverkizClient(config, logger) {
   // `refreshPeriod` is expressed in MINUTES by overkiz-client (it multiplies by
@@ -30,13 +33,63 @@ export function createOverkizClient(config, logger) {
   // polling setters `stop()` uses. The error it raises is classified as an
   // unreachable cloud, so it is retried.
   client.api.client.defaults.timeout = REQUEST_TIMEOUT_MS;
+  // Node ≥ 19 keeps HTTPS sockets alive for 5 s, and after a command the poller
+  // fetches every 5 s: it kept reusing a socket the cloud had just closed, and
+  // the fetch failed with "socket hang up". A handshake every poll is cheap.
+  client.api.client.defaults.httpsAgent = new https.Agent({ keepAlive: false });
+  // After each failed fetch the poller pauses twice as long as the previous
+  // time, and only a successful fetch resets it — but that fetch only comes
+  // after the pause: a cloud outage left an account deaf for hours.
+  let pollingErrorLockS = client.pollingErrorLockDuration;
+  Object.defineProperty(client, 'pollingErrorLockDuration', {
+    get: () => pollingErrorLockS,
+    set: (seconds) => {
+      pollingErrorLockS = Math.min(seconds, MAX_POLLING_ERROR_LOCK_S);
+    },
+  });
+
   // When the cloud reports a completed state refresh, the event poller calls
   // `refreshDevices()` without awaiting nor catching it: one failed GET there
   // is an unhandled rejection, and that ends the process. Its only other
   // caller already catches, so resolving instead changes nothing for it.
-  const refreshDevices = client.refreshDevices.bind(client);
-  client.refreshDevices = () =>
-    refreshDevices().catch((err) => logger.error('Failed to refresh the Overkiz devices', err));
+  //
+  // overkiz-client's own version also skips the sub-devices it files as
+  // sensors of another (consumption meters, zone thermometers…): their states
+  // never caught up. Every device of the setup is updated here.
+  client.refreshDevices = async () => {
+    try {
+      const devices = await client.api.get('/setup/devices');
+      for (const fresh of devices) {
+        client.devices[fresh.deviceURL]?.updateStates(fresh.states ?? []);
+      }
+    } catch (err) {
+      logger.error('Failed to refresh the Overkiz devices', err);
+    }
+  };
+
+  // A failed fetch may have lost events — the cloud can drop the listener, or
+  // answer a request whose response never arrives — and a change made from a
+  // remote or a wall switch meanwhile would only show up at the next 30-minute
+  // refresh. Read the current states back as soon as fetching works again.
+  const post = client.api.post.bind(client.api);
+  let eventsMayBeLost = false;
+  client.api.post = async (url, ...rest) => {
+    const isEventFetch = /^\/events\/[^/]+\/fetch$/.test(url);
+    try {
+      const data = await post(url, ...rest);
+      if (isEventFetch && eventsMayBeLost) {
+        eventsMayBeLost = false;
+        logger.info('Event polling is back, refreshing the device states');
+        client.refreshDevices();
+      }
+      return data;
+    } catch (err) {
+      if (isEventFetch) {
+        eventsMayBeLost = true;
+      }
+      throw err;
+    }
+  };
   return client;
 }
 
