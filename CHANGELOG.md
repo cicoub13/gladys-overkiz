@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more "Polling error - socket hang up" after a command.** For a few
+  seconds after a command the integration polls the cloud every 5 s, and kept
+  reusing a connection the cloud had just closed. Each such error paused the
+  updates, and the pause doubled at every new error with no limit: after a
+  cloud outage, an account could stop receiving updates for hours. Connections
+  are no longer reused, and the pause never exceeds one minute.
+
+- **Changes made from a remote or a wall switch are no longer lost after a
+  polling error.** Changes that happened while polling failed only showed up
+  at the next full refresh, up to 30 minutes later. Device states are now
+  read again as soon as polling works again, and that refresh now also covers
+  the sub-devices (energy meters, zone thermometers…), which were skipped
+  until now.
+
 ## [1.6.2] - 2026-10-13
 
 ### Changed
