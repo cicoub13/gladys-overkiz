@@ -133,9 +133,11 @@ test('a failed device refresh inside overkiz-client is logged, not left to crash
   const logger = { debug() {}, info() {}, warn() {}, error: (...args) => errors.push(args) };
   const client = createOverkizClient(CONFIG, logger);
   client.listenerId = 'listener';
-  client.api.post = async () => [{ name: 'RefreshAllDevicesStatesCompletedEvent' }];
-  client.getDevices = async () => {
-    throw 'Error 503 Service Unavailable';
+  client.api.request = async ({ method }) => {
+    if (method === 'get') {
+      throw 'Error 503 Service Unavailable';
+    }
+    return [{ name: 'RefreshAllDevicesStatesCompletedEvent' }];
   };
   const unhandled = [];
   const onUnhandled = (reason) => unhandled.push(reason);
@@ -163,6 +165,103 @@ test('every Overkiz request has a timeout', () => {
   // What axios rejects with once it fires, flattened by overkiz-client: it
   // must be retried like any other unreachable cloud.
   assert.equal(describeOverkizError('timeout of 30000ms exceeded').transient, true);
+});
+
+test('Overkiz requests do not reuse kept-alive sockets', () => {
+  // Node keeps a socket alive 5 s, and after a command the poller fetches every
+  // 5 s: the reused socket had just been closed by the cloud, and the fetch
+  // failed with "socket hang up".
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+  const client = createOverkizClient(CONFIG, logger);
+  assert.equal(client.api.client.defaults.httpsAgent.keepAlive, false);
+});
+
+test('the event poller never pauses more than a minute after errors', () => {
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+  const client = createOverkizClient(CONFIG, logger);
+  for (let i = 0; i < 20; i++) {
+    client.pollingErrorLockDuration *= 2; // what overkiz-client does after each failure
+  }
+  assert.equal(client.pollingErrorLockDuration, 60);
+  client.pollingErrorLockDuration = 10; // and after a success
+  assert.equal(client.pollingErrorLockDuration, 10);
+});
+
+/** A real client whose HTTP layer answers from `respond(method, url)`. */
+function makeOfflineClient(respond, logger) {
+  const client = createOverkizClient(CONFIG, logger);
+  client.listenerId = 'listener';
+  client.delay = async () => {}; // the pause after a failed fetch
+  client.api.request = async ({ method, url }) => respond(method, url);
+  return client;
+}
+
+function makeStateRecorder() {
+  return {
+    updates: [],
+    updateStates(states) {
+      this.updates.push(states);
+    },
+  };
+}
+
+test('states are read back once event polling recovers from an error', async () => {
+  // A failed fetch may have lost events: a change made from a remote meanwhile
+  // only showed up at the next 30-minute refresh.
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+  const fresh = [{ name: 'core:OnOffState', value: 'on' }];
+  let fetchFails = true;
+  const requests = [];
+  const client = makeOfflineClient((method, url) => {
+    requests.push(`${method} ${url}`);
+    if (url === '/setup/devices') {
+      return [{ deviceURL: 'io://1/1', states: fresh }];
+    }
+    if (fetchFails) {
+      throw 'socket hang up';
+    }
+    return [];
+  }, logger);
+  const device = makeStateRecorder();
+  client.devices['io://1/1'] = device;
+
+  await client.fetchEvents();
+  assert.deepEqual(device.updates, [], 'nothing to read back while the cloud fails');
+  fetchFails = false;
+  await client.fetchEvents();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(device.updates, [fresh]);
+  await client.fetchEvents();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    requests.filter((r) => r === 'get /setup/devices').length,
+    1,
+    'a healthy poller does not refresh',
+  );
+});
+
+test('a device refresh also updates the sub-devices filed as sensors', async () => {
+  // overkiz-client's own refresh only walked the devices it lists as
+  // physical, so a consumption meter or a zone thermometer never caught up.
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+  const client = makeOfflineClient(
+    () => [
+      { deviceURL: 'io://1/1', states: [{ name: 'core:OnOffState', value: 'on' }] },
+      { deviceURL: 'io://1/1#2', states: [{ name: 'core:TemperatureState', value: 21 }] },
+      { deviceURL: 'io://1/9', states: [] }, // unknown to the client: ignored
+    ],
+    logger,
+  );
+  const main = makeStateRecorder();
+  const sensor = makeStateRecorder();
+  client.devices['io://1/1'] = main;
+  client.devices['io://1/1#2'] = sensor;
+
+  await client.refreshDevices();
+
+  assert.deepEqual(main.updates, [[{ name: 'core:OnOffState', value: 'on' }]]);
+  assert.deepEqual(sensor.updates, [[{ name: 'core:TemperatureState', value: 21 }]]);
 });
 
 test('connection changes are forwarded to onConnectionChange', async () => {
