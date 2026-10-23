@@ -317,6 +317,57 @@ test('buildCommand prefers the dedicated my command when the cover has one', () 
   assert.deepEqual(buildCommand(both, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
 });
 
+test('TaHoma Switch screens and awnings get the "My" button too', () => {
+  // As a TaHoma Switch reports them: an ogp:Blind screen and an ogp:Awning
+  // pergola, both with goToAlias and no `my`.
+  const screen = makeDevice({
+    deviceURL: 'ogp://2117-8895-9275/13085607',
+    uiClass: 'Screen',
+    controllableName: 'ogp:Blind',
+    commands: [
+      'close',
+      'goToAlias',
+      'identify',
+      'open',
+      'saveAlias',
+      'setClosure',
+      'setName',
+      'stop',
+    ],
+    states: { 'core:ClosureState': 0 },
+  });
+  const awning = makeDevice({
+    deviceURL: 'ogp://2117-8895-9275/8456018',
+    uiClass: 'Awning',
+    controllableName: 'ogp:Awning',
+    commands: [
+      'deploy',
+      'goToAlias',
+      'identify',
+      'rollOut',
+      'rollUp',
+      'saveAlias',
+      'setDeployment',
+      'setName',
+      'setRollingOut',
+      'stop',
+      'undeploy',
+    ],
+    states: { 'core:DeploymentState': 0 },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  for (const device of [screen, awning]) {
+    assert.ok(
+      mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'),
+      device.controllableName,
+    );
+    assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+      name: 'goToAlias',
+      parameters: ['1'],
+    });
+  }
+});
+
 test('buildCommand uses the favourite alias that core:SupportedAliases lists', () => {
   const device = makeDevice({
     ...OGP_SHUTTER,

@@ -11,6 +11,9 @@
   saved favourite. Gladys does not add features to a device that already exists:
   update your covers from the discovery screen to see the button appear.
 
+- **"List the raw devices" also writes the device attributes**, such as the
+  favourite positions a cover has saved.
+
 ### Fixed
 
 - **No more "Polling error - socket hang up" after a command.** For a few

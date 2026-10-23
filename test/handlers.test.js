@@ -806,7 +806,9 @@ test('the dump action asks for a connection first', async () => {
 test('the dump action writes every device to the logs', async () => {
   const lines = [];
   const gladys = createTestGladys({ config: VALID_CONFIG });
-  const pool = makeFakeOverkizPool({ 1: { devices: [makeWaterHeater()] } });
+  const heater = makeWaterHeater();
+  heater.attributes = [{ name: 'core:Manufacturer', value: 'Atlantic' }];
+  const pool = makeFakeOverkizPool({ 1: { devices: [heater] } });
   const handlers = createHandlers({
     gladys,
     createOverkiz: pool.createOverkiz,
@@ -827,6 +829,7 @@ test('the dump action writes every device to the logs', async () => {
   );
   assert.ok(payload.commands.includes('setDHWMode'));
   assert.ok(payload.states.some((s) => s.name === 'io:DHWModeState'));
+  assert.deepEqual(payload.attributes, [{ name: 'core:Manufacturer', value: 'Atlantic' }]);
   // The dump carries the hub serial number, so the message says so.
   assert.match(message.fr, /1 appareil/);
   assert.match(message.fr, /numéro de série/);

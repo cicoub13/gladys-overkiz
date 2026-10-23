@@ -43,7 +43,7 @@ Battery reporting is read from whatever the device publishes, whatever its uiCla
 
 State updates are pushed to Gladys in near real time through the Overkiz event polling API. Gladys commands are translated into Overkiz executions (`setClosure`, `setDeployment`, `open`, `close`, `stop`, `my`, `goToAlias`, `on`, `off`, `setIntensity`, `setDHWMode`...), picking the commands the device actually supports. Some writes need several commands in a fixed order — Overkiz only reports the result of a water heater write once the matching `refreshXxx` has been sent — so a command may travel as an ordered list inside a single Overkiz action.
 
-The **List the raw devices** action writes the raw description of every Overkiz device (uiClass, widget, states, commands) to the integration logs. It is the way to map an appliance Overkiz exposes through a vendor-specific dialect. The dump carries your hub serial number: anonymize it before sharing.
+The **List the raw devices** action writes the raw description of every Overkiz device (uiClass, widget, states, commands, attributes) to the integration logs. It is the way to map an appliance Overkiz exposes through a vendor-specific dialect. The dump carries your hub serial number: anonymize it before sharing.
 
 ## Project layout
 

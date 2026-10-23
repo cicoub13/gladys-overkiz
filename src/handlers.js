@@ -400,6 +400,9 @@ export function createHandlers({
             widgetName: device.definition?.widgetName,
             commands: (device.definition?.commands ?? []).map((c) => c.commandName),
             states: (device.states ?? []).map((s) => ({ name: s.name, value: s.value })),
+            // Static facts the states do not carry, such as the alias slots
+            // (`core:SupportedAliases`) that decide the "My position" button.
+            attributes: (device.attributes ?? []).map((a) => ({ name: a.name, value: a.value })),
           })}`,
         );
       }
