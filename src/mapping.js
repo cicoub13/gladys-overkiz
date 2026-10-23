@@ -323,6 +323,7 @@ const FEATURE_NAMES = {
   energy: 'Energy',
   battery: 'Battery',
   battery_low: 'Low battery',
+  my_position: 'My position',
   mode: 'Mode',
   boost: 'Boost',
   target_temperature: 'Target temperature',
@@ -633,6 +634,26 @@ export function mapDeviceFeatures(device, ids) {
           keep_history: false,
           // Write-only: Overkiz reports a position, never an open/close/stop
           // state, so nothing will ever echo back here.
+          has_feedback: false,
+        }),
+      });
+    }
+    // "My" is the favourite position stored in the motor, the middle button of
+    // a Somfy remote. IO and RTS motors take `my`; the `ogp` devices of a TaHoma
+    // Switch only take `goToAlias`, whose alias 1 is that same favourite — as in
+    // the Home Assistant overkiz component.
+    if (commands.has('my') || commands.has('goToAlias')) {
+      entries.push({
+        key: 'my_position',
+        stateName: null,
+        gladysFeature: feature(ids, 'my_position', {
+          category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+          type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+          min: 0,
+          max: 1,
+          read_only: false,
+          keep_history: false,
+          // Write-only: Overkiz never reports that a cover sits on its "My".
           has_feedback: false,
         }),
       });
@@ -1129,6 +1150,17 @@ export function buildCommand(device, entry, value, now = () => new Date()) {
     }
     if (commands.has('setPosition')) {
       return { name: 'setPosition', parameters: [closure] };
+    }
+    return null;
+  }
+
+  if (key === 'my_position') {
+    // A push button: any press means "go to My", whatever value comes with it.
+    if (commands.has('my')) {
+      return { name: 'my', parameters: [] };
+    }
+    if (commands.has('goToAlias')) {
+      return { name: 'goToAlias', parameters: ['1'] };
     }
     return null;
   }

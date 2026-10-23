@@ -4,7 +4,7 @@ Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma S
 
 ## What it does
 
-- **Covers**: roller shutters, awnings, screens, venetian blinds, curtains, pergolas, garage doors, gates and windows — open, close, stop and set the position.
+- **Covers**: roller shutters, awnings, screens, venetian blinds, curtains, pergolas, garage doors, gates and windows — open, close, stop, set the position and send to their "My" favourite position.
 - **Lights**: on/off and brightness.
 - **Switches and plugs**: on/off.
 - **Sensors**: temperature, humidity, luminance, contact (opening), occupancy (motion), smoke, water leak, CO2 and electric power/energy.

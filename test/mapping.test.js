@@ -268,6 +268,65 @@ test('buildCommand maps the shutter state to open/close/stop', () => {
   assert.deepEqual(buildCommand(device, { key: 'state' }, 0), { name: 'stop', parameters: [] });
 });
 
+// A TaHoma Switch shutter as the cloud describes it: `ogp` devices have no `my`
+// command, their "My" is alias 1 of `goToAlias`.
+const OGP_SHUTTER = {
+  deviceURL: 'ogp://2117-8895-9275/10252080',
+  uiClass: 'Shutter',
+  controllableName: 'ogp:Shutter',
+  commands: [
+    'close',
+    'goToAlias',
+    'identify',
+    'open',
+    'saveAlias',
+    'setClosure',
+    'setName',
+    'stop',
+  ],
+  states: { 'core:ClosureState': 0 },
+};
+
+test('a cover with a "My" position exposes it as a write-only push button', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  assert.deepEqual(entries.map((e) => e.key).sort(), ['my_position', 'position', 'state']);
+
+  const my = entries.find((e) => e.key === 'my_position');
+  assert.equal(my.stateName, null);
+  assert.equal(my.gladysFeature.category, 'button');
+  assert.equal(my.gladysFeature.type, 'push');
+  assert.equal(my.gladysFeature.name, 'My position');
+  assert.equal(my.gladysFeature.read_only, false);
+  assert.equal(my.gladysFeature.has_feedback, false, 'nothing will ever echo back');
+});
+
+test('buildCommand sends an ogp cover to its "My" position through alias 1', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['1'],
+  });
+});
+
+test('buildCommand prefers the dedicated my command when the cover has one', () => {
+  const io = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'stop', 'my'] });
+  assert.deepEqual(buildCommand(io, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
+  const both = makeDevice({ uiClass: 'RollerShutter', commands: ['my', 'goToAlias'] });
+  assert.deepEqual(buildCommand(both, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
+});
+
+test('a cover without a "My" command gets no "My" button', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  assert.ok(!mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'));
+  assert.equal(buildCommand(device, { key: 'my_position' }, 1), null);
+});
+
 test('an RTS garage door (single cycle command) still maps to a state feature', () => {
   // RTS garage door openers expose one toggle command, like the lone button
   // of their physical remote — no separate open/close commands.

@@ -4,7 +4,7 @@ Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma,
 
 ## Fonctionnalités
 
-- **Volets et ouvrants** : volets roulants, stores, screens, stores vénitiens, rideaux, pergolas, portes de garage, portails et fenêtres — ouvrir, fermer, stopper et régler la position.
+- **Volets et ouvrants** : volets roulants, stores, screens, stores vénitiens, rideaux, pergolas, portes de garage, portails et fenêtres — ouvrir, fermer, stopper, régler la position et envoyer sur la position favorite « My ».
 - **Lampes** : marche/arrêt et luminosité.
 - **Interrupteurs et prises** : marche/arrêt.
 - **Capteurs** : température, humidité, luminosité, contact (ouverture), présence (mouvement), fumée, fuite d'eau, CO2 et puissance/consommation électrique.

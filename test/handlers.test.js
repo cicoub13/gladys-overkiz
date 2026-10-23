@@ -238,6 +238,37 @@ test('a write-only command publishes no optimistic state', async () => {
   assert.equal(stateBatches(gladys).length, 0, 'the state feature has no Overkiz counterpart');
 });
 
+test('the "My" button of a TaHoma Switch shutter is accepted by Gladys and sends goToAlias', async () => {
+  const shutter = makeOverkizDevice({
+    deviceURL: 'ogp://2117-8895-9275/10252080',
+    uiClass: 'Shutter',
+    controllableName: 'ogp:Shutter',
+    commands: [
+      'close',
+      'goToAlias',
+      'identify',
+      'open',
+      'saveAlias',
+      'setClosure',
+      'setName',
+      'stop',
+    ],
+    states: { 'core:ClosureState': 0 },
+  });
+  const { gladys, overkiz, handlers } = setup({ devices: [shutter] });
+  await handlers.gladysConnected();
+
+  const [discovered] = gladys.fake.discoveredDevices;
+  const my = discovered.features.find((f) => f.external_id.endsWith(':my_position'));
+  assert.ok(my, 'the discovered shutter carries the "My" button');
+  forgetReceived(gladys);
+
+  await handlers.setValue(discovered, my, 1);
+
+  assert.deepEqual(overkiz.calls.execute[0].command, { name: 'goToAlias', parameters: ['1'] });
+  assert.equal(stateBatches(gladys).length, 0, 'a push button has no state to echo');
+});
+
 test('a command on an unknown device or feature is rejected', async () => {
   const { handlers } = setup();
   await handlers.gladysConnected();
