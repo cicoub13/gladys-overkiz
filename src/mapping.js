@@ -569,6 +569,55 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
   return entries;
 }
 
+// Covers whose `goToAlias` is not trusted without the alias list: a gate or a
+// garage door has no documented "My" favourite behind alias 1.
+const MY_ALIAS_EXCLUDED_UI_CLASSES = new Set(['GarageDoor', 'Gate']);
+
+function attributeValue(device, name) {
+  return (device.attributes ?? []).find((a) => a.name === name)?.value;
+}
+
+/**
+ * The command that sends a cover to its "My" position, or null when it has none.
+ *
+ * "My" is the favourite position stored in the motor, the middle button of a
+ * Somfy remote. IO and RTS motors take `my`. Others, such as the `ogp` devices
+ * of a TaHoma Switch, only take `goToAlias`, which Overkiz also offers on
+ * devices whose aliases are something else (the only alias of a Velux IO
+ * window opener is a "ventilation" one). So `goToAlias` is used only with the
+ * `favorite1` alias that `core:SupportedAliases` lists: the most featured one,
+ * the first on a tie, as the Somfy app picks it. Without that list, only an
+ * `ogp` cover is trusted with alias 1, as in the Home Assistant overkiz
+ * component.
+ */
+function myPositionCommand(device, commands) {
+  if (commands.has('my')) {
+    return { name: 'my', parameters: [] };
+  }
+  if (!commands.has('goToAlias')) {
+    return null;
+  }
+  const aliases = attributeValue(device, 'core:SupportedAliases');
+  if (Array.isArray(aliases)) {
+    let favourite = null;
+    for (const alias of aliases) {
+      if (alias?.type !== 'favorite1' || alias.id === null || alias.id === undefined) {
+        continue;
+      }
+      if (!favourite || (alias.features?.length ?? 0) > (favourite.features?.length ?? 0)) {
+        favourite = alias;
+      }
+    }
+    // Overkiz declares the goToAlias parameter as a string.
+    return favourite ? { name: 'goToAlias', parameters: [String(favourite.id)] } : null;
+  }
+  const isOgp = device.controllableName?.startsWith('ogp:');
+  if (isOgp && !MY_ALIAS_EXCLUDED_UI_CLASSES.has(device.definition?.uiClass)) {
+    return { name: 'goToAlias', parameters: ['1'] };
+  }
+  return null;
+}
+
 /**
  * Build the Gladys features of an Overkiz device.
  *
@@ -638,11 +687,7 @@ export function mapDeviceFeatures(device, ids) {
         }),
       });
     }
-    // "My" is the favourite position stored in the motor, the middle button of
-    // a Somfy remote. IO and RTS motors take `my`; the `ogp` devices of a TaHoma
-    // Switch only take `goToAlias`, whose alias 1 is that same favourite — as in
-    // the Home Assistant overkiz component.
-    if (commands.has('my') || commands.has('goToAlias')) {
+    if (myPositionCommand(device, commands)) {
       entries.push({
         key: 'my_position',
         stateName: null,
@@ -1155,26 +1200,17 @@ export function buildCommand(device, entry, value, now = () => new Date()) {
   }
 
   if (key === 'my_position') {
-    // A push button: any press means "go to My", whatever value comes with it.
-    if (commands.has('my')) {
-      return { name: 'my', parameters: [] };
-    }
-    if (commands.has('goToAlias')) {
-      return { name: 'goToAlias', parameters: ['1'] };
-    }
-    return null;
+    // A push button presses with 1. Anything else (a 0 from a scene, a stray
+    // value) must not move the cover.
+    return Number(value) === 1 ? myPositionCommand(device, commands) : null;
   }
 
   if (key === 'state') {
     const numeric = Number(value);
     if (numeric === 0) {
-      if (commands.has('stop')) {
-        return { name: 'stop', parameters: [] };
-      }
-      if (commands.has('my')) {
-        return { name: 'my', parameters: [] };
-      }
-      return null;
+      // Never fall back to `my`: on a cover that is not moving it drives to
+      // the favourite position, the opposite of a stop.
+      return commands.has('stop') ? { name: 'stop', parameters: [] } : null;
     }
     if (numeric === 1) {
       for (const name of ['open', 'up', 'deploy', 'cycle']) {

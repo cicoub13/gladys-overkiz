@@ -8,7 +8,7 @@
   position (the middle button of a Somfy remote) now show a "My position" push
   button that sends them there. This includes TaHoma Switch shutters and
   screens, which have no dedicated "My" command and reach it through their
-  favourite 1. Gladys does not add features to a device that already exists:
+  saved favourite. Gladys does not add features to a device that already exists:
   update your covers from the discovery screen to see the button appear.
 
 ### Fixed

@@ -317,6 +317,72 @@ test('buildCommand prefers the dedicated my command when the cover has one', () 
   assert.deepEqual(buildCommand(both, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
 });
 
+test('buildCommand uses the favourite alias that core:SupportedAliases lists', () => {
+  const device = makeDevice({
+    ...OGP_SHUTTER,
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '55305', type: 'partial', features: ['openClosePosition'] },
+        { id: '1', type: 'favorite1', features: ['openClosePosition'] },
+        { id: 3, type: 'favorite1', features: ['openClosePosition', 'tiltPosition'] },
+        { id: '4', type: 'favorite1', features: ['tiltPosition', 'openClosePosition'] },
+      ],
+    },
+  });
+  // The most featured favourite, the first one on a tie, sent as a string.
+  assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['3'],
+  });
+});
+
+test('goToAlias without a favourite alias gives no "My" button', () => {
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  // A Velux IO window opener as the cloud describes it: goToAlias, but its only
+  // alias is a ventilation one.
+  const velux = makeDevice({
+    uiClass: 'Window',
+    controllableName: 'io:WindowOpenerVeluxIOComponent',
+    commands: ['open', 'close', 'stop', 'setClosure', 'goToAlias', 'saveAlias'],
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '55299', type: 'ventilation', features: ['openClosePosition'] },
+      ],
+    },
+  });
+  // Without an alias list, only ogp covers are trusted with alias 1, and not
+  // gates or garage doors.
+  const ioAwning = makeDevice({
+    uiClass: 'Awning',
+    controllableName: 'io:DynamicAwningIOComponent',
+    commands: ['deploy', 'undeploy', 'stop', 'setDeployment', 'goToAlias'],
+  });
+  const ogpGate = makeDevice({
+    uiClass: 'Gate',
+    controllableName: 'ogp:Gate',
+    commands: ['open', 'close', 'stop', 'goToAlias'],
+  });
+  for (const device of [velux, ioAwning, ogpGate]) {
+    assert.ok(
+      !mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'),
+      device.controllableName,
+    );
+    assert.equal(buildCommand(device, { key: 'my_position' }, 1), null, device.controllableName);
+  }
+});
+
+test('the "My" button only moves the cover on a press', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  for (const value of [0, -1, 'abc', null]) {
+    assert.equal(buildCommand(device, { key: 'my_position' }, value), null, String(value));
+  }
+});
+
+test('stop never falls back to my, which would move a cover at rest', () => {
+  const device = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'my'] });
+  assert.equal(buildCommand(device, { key: 'state' }, 0), null);
+});
+
 test('a cover without a "My" command gets no "My" button', () => {
   const device = makeDevice({
     uiClass: 'RollerShutter',
