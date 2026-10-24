@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-24
+
 ### Added
 
 - **A "My position" button on covers.** Covers that have a "My" favourite
