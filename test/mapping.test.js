@@ -268,6 +268,201 @@ test('buildCommand maps the shutter state to open/close/stop', () => {
   assert.deepEqual(buildCommand(device, { key: 'state' }, 0), { name: 'stop', parameters: [] });
 });
 
+// A TaHoma Switch shutter as a user's dump describes it: `ogp` devices have no
+// `my` command, their "My" is the favorite1 alias of `goToAlias`.
+const OGP_SHUTTER = {
+  deviceURL: 'ogp://2117-8895-9275/10252080',
+  uiClass: 'Shutter',
+  controllableName: 'ogp:Shutter',
+  commands: [
+    'close',
+    'goToAlias',
+    'identify',
+    'open',
+    'saveAlias',
+    'setClosure',
+    'setName',
+    'stop',
+  ],
+  states: { 'core:ClosureState': 0 },
+  attributes: {
+    'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    'core:Technology': 'io2way',
+  },
+};
+
+test('a cover with a "My" position exposes it as a write-only push button', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+  assert.deepEqual(entries.map((e) => e.key).sort(), ['my_position', 'position', 'state']);
+
+  const my = entries.find((e) => e.key === 'my_position');
+  assert.equal(my.stateName, null);
+  assert.equal(my.gladysFeature.category, 'button');
+  assert.equal(my.gladysFeature.type, 'push');
+  assert.equal(my.gladysFeature.name, 'My position');
+  assert.equal(my.gladysFeature.read_only, false);
+  assert.equal(my.gladysFeature.has_feedback, false, 'nothing will ever echo back');
+});
+
+test('buildCommand sends an ogp cover to its "My" position through alias 1', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['1'],
+  });
+  // An ogp cover that lists no alias at all still gets alias 1, as in Home
+  // Assistant.
+  const unlisted = makeDevice({ ...OGP_SHUTTER, attributes: {} });
+  assert.deepEqual(buildCommand(unlisted, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['1'],
+  });
+});
+
+test('buildCommand prefers the dedicated my command when the cover has one', () => {
+  const io = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'stop', 'my'] });
+  assert.deepEqual(buildCommand(io, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
+  const both = makeDevice({ uiClass: 'RollerShutter', commands: ['my', 'goToAlias'] });
+  assert.deepEqual(buildCommand(both, { key: 'my_position' }, 1), { name: 'my', parameters: [] });
+});
+
+test('TaHoma Switch screens and awnings get the "My" button too', () => {
+  // As a TaHoma Switch reports them: an ogp:Blind screen and an ogp:Awning
+  // pergola, both with goToAlias and no `my`.
+  const screen = makeDevice({
+    deviceURL: 'ogp://2117-8895-9275/13085607',
+    uiClass: 'Screen',
+    controllableName: 'ogp:Blind',
+    commands: [
+      'close',
+      'goToAlias',
+      'identify',
+      'open',
+      'saveAlias',
+      'setClosure',
+      'setName',
+      'stop',
+    ],
+    states: { 'core:ClosureState': 0 },
+    attributes: {
+      'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    },
+  });
+  const awning = makeDevice({
+    deviceURL: 'ogp://2117-8895-9275/8456018',
+    uiClass: 'Awning',
+    controllableName: 'ogp:Awning',
+    commands: [
+      'deploy',
+      'goToAlias',
+      'identify',
+      'rollOut',
+      'rollUp',
+      'saveAlias',
+      'setDeployment',
+      'setName',
+      'setRollingOut',
+      'stop',
+      'undeploy',
+    ],
+    states: { 'core:DeploymentState': 0 },
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '1', type: 'favorite1', features: ['rollUpRollOutPosition'] },
+      ],
+    },
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  for (const device of [screen, awning]) {
+    assert.ok(
+      mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'),
+      device.controllableName,
+    );
+    assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+      name: 'goToAlias',
+      parameters: ['1'],
+    });
+  }
+});
+
+test('buildCommand uses the favourite alias that core:SupportedAliases lists', () => {
+  const device = makeDevice({
+    ...OGP_SHUTTER,
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '55305', type: 'partial', features: ['openClosePosition'] },
+        { id: '1', type: 'favorite1', features: ['openClosePosition'] },
+        { id: 3, type: 'favorite1', features: ['openClosePosition', 'tiltPosition'] },
+        { id: '4', type: 'favorite1', features: ['tiltPosition', 'openClosePosition'] },
+      ],
+    },
+  });
+  // The most featured favourite, the first one on a tie, sent as a string.
+  assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['3'],
+  });
+});
+
+test('goToAlias without a favourite alias gives no "My" button', () => {
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  // A Velux IO window opener as the cloud describes it: goToAlias, but its only
+  // alias is a ventilation one.
+  const velux = makeDevice({
+    uiClass: 'Window',
+    controllableName: 'io:WindowOpenerVeluxIOComponent',
+    commands: ['open', 'close', 'stop', 'setClosure', 'goToAlias', 'saveAlias'],
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '55299', type: 'ventilation', features: ['openClosePosition'] },
+      ],
+    },
+  });
+  // Without an alias list, only ogp covers are trusted with alias 1, and not
+  // gates or garage doors.
+  const ioAwning = makeDevice({
+    uiClass: 'Awning',
+    controllableName: 'io:DynamicAwningIOComponent',
+    commands: ['deploy', 'undeploy', 'stop', 'setDeployment', 'goToAlias'],
+  });
+  const ogpGate = makeDevice({
+    uiClass: 'Gate',
+    controllableName: 'ogp:Gate',
+    commands: ['open', 'close', 'stop', 'goToAlias'],
+  });
+  for (const device of [velux, ioAwning, ogpGate]) {
+    assert.ok(
+      !mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'),
+      device.controllableName,
+    );
+    assert.equal(buildCommand(device, { key: 'my_position' }, 1), null, device.controllableName);
+  }
+});
+
+test('the "My" button only moves the cover on a press', () => {
+  const device = makeDevice(OGP_SHUTTER);
+  for (const value of [0, -1, 'abc', null]) {
+    assert.equal(buildCommand(device, { key: 'my_position' }, value), null, String(value));
+  }
+});
+
+test('stop never falls back to my, which would move a cover at rest', () => {
+  const device = makeDevice({ uiClass: 'RollerShutter', commands: ['open', 'close', 'my'] });
+  assert.equal(buildCommand(device, { key: 'state' }, 0), null);
+});
+
+test('a cover without a "My" command gets no "My" button', () => {
+  const device = makeDevice({
+    uiClass: 'RollerShutter',
+    commands: ['open', 'close', 'stop', 'setClosure'],
+  });
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  assert.ok(!mapDeviceFeatures(device, ids).some((e) => e.key === 'my_position'));
+  assert.equal(buildCommand(device, { key: 'my_position' }, 1), null);
+});
+
 test('an RTS garage door (single cycle command) still maps to a state feature', () => {
   // RTS garage door openers expose one toggle command, like the lone button
   // of their physical remote — no separate open/close commands.

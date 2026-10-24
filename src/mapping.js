@@ -323,6 +323,7 @@ const FEATURE_NAMES = {
   energy: 'Energy',
   battery: 'Battery',
   battery_low: 'Low battery',
+  my_position: 'My position',
   mode: 'Mode',
   boost: 'Boost',
   target_temperature: 'Target temperature',
@@ -568,6 +569,57 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
   return entries;
 }
 
+// Covers whose `goToAlias` is not trusted without the alias list: the aliases
+// of a gate or a garage door are "pedestrian" or "ventilation" ones, never a
+// favourite (as the `core:SupportedNodeDefinitions` of a TaHoma Switch RTS
+// bridge lists them).
+const MY_ALIAS_EXCLUDED_UI_CLASSES = new Set(['GarageDoor', 'Gate']);
+
+function attributeValue(device, name) {
+  return (device.attributes ?? []).find((a) => a.name === name)?.value;
+}
+
+/**
+ * The command that sends a cover to its "My" position, or null when it has none.
+ *
+ * "My" is the favourite position stored in the motor, the middle button of a
+ * Somfy remote. IO and RTS motors take `my`. Others, such as the `ogp` devices
+ * of a TaHoma Switch, only take `goToAlias`, which Overkiz also offers on
+ * devices whose aliases are something else (the only alias of a Velux IO
+ * window opener is a "ventilation" one). So `goToAlias` is used only with the
+ * `favorite1` alias that `core:SupportedAliases` lists: the most featured one,
+ * the first on a tie, as the Somfy app picks it. Without that list, only an
+ * `ogp` cover is trusted with alias 1, as in the Home Assistant overkiz
+ * component.
+ */
+function myPositionCommand(device, commands) {
+  if (commands.has('my')) {
+    return { name: 'my', parameters: [] };
+  }
+  if (!commands.has('goToAlias')) {
+    return null;
+  }
+  const aliases = attributeValue(device, 'core:SupportedAliases');
+  if (Array.isArray(aliases)) {
+    let favourite = null;
+    for (const alias of aliases) {
+      if (alias?.type !== 'favorite1' || alias.id === null || alias.id === undefined) {
+        continue;
+      }
+      if (!favourite || (alias.features?.length ?? 0) > (favourite.features?.length ?? 0)) {
+        favourite = alias;
+      }
+    }
+    // Overkiz declares the goToAlias parameter as a string.
+    return favourite ? { name: 'goToAlias', parameters: [String(favourite.id)] } : null;
+  }
+  const isOgp = device.controllableName?.startsWith('ogp:');
+  if (isOgp && !MY_ALIAS_EXCLUDED_UI_CLASSES.has(device.definition?.uiClass)) {
+    return { name: 'goToAlias', parameters: ['1'] };
+  }
+  return null;
+}
+
 /**
  * Build the Gladys features of an Overkiz device.
  *
@@ -633,6 +685,22 @@ export function mapDeviceFeatures(device, ids) {
           keep_history: false,
           // Write-only: Overkiz reports a position, never an open/close/stop
           // state, so nothing will ever echo back here.
+          has_feedback: false,
+        }),
+      });
+    }
+    if (myPositionCommand(device, commands)) {
+      entries.push({
+        key: 'my_position',
+        stateName: null,
+        gladysFeature: feature(ids, 'my_position', {
+          category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+          type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+          min: 0,
+          max: 1,
+          read_only: false,
+          keep_history: false,
+          // Write-only: Overkiz never reports that a cover sits on its "My".
           has_feedback: false,
         }),
       });
@@ -1133,16 +1201,18 @@ export function buildCommand(device, entry, value, now = () => new Date()) {
     return null;
   }
 
+  if (key === 'my_position') {
+    // A push button presses with 1. Anything else (a 0 from a scene, a stray
+    // value) must not move the cover.
+    return Number(value) === 1 ? myPositionCommand(device, commands) : null;
+  }
+
   if (key === 'state') {
     const numeric = Number(value);
     if (numeric === 0) {
-      if (commands.has('stop')) {
-        return { name: 'stop', parameters: [] };
-      }
-      if (commands.has('my')) {
-        return { name: 'my', parameters: [] };
-      }
-      return null;
+      // Never fall back to `my`: on a cover that is not moving it drives to
+      // the favourite position, the opposite of a stop.
+      return commands.has('stop') ? { name: 'stop', parameters: [] } : null;
     }
     if (numeric === 1) {
       for (const name of ['open', 'up', 'deploy', 'cycle']) {

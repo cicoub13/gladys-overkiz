@@ -19,6 +19,7 @@ export function makeOverkizDevice({
   controllableName = 'io:RollerShutterGenericIOComponent',
   commands = [],
   states = {},
+  attributes = {},
 } = {}) {
   return {
     deviceURL,
@@ -30,6 +31,7 @@ export function makeOverkizDevice({
       commands: commands.map((commandName) => ({ commandName })),
     },
     states: Object.entries(states).map(([name, value]) => ({ name, value })),
+    attributes: Object.entries(attributes).map(([name, value]) => ({ name, value })),
     get(stateName) {
       return this.states.find((s) => s.name === stateName)?.value ?? null;
     },

@@ -238,6 +238,40 @@ test('a write-only command publishes no optimistic state', async () => {
   assert.equal(stateBatches(gladys).length, 0, 'the state feature has no Overkiz counterpart');
 });
 
+test('the "My" button of a TaHoma Switch shutter is accepted by Gladys and sends goToAlias', async () => {
+  const shutter = makeOverkizDevice({
+    deviceURL: 'ogp://2117-8895-9275/10252080',
+    uiClass: 'Shutter',
+    controllableName: 'ogp:Shutter',
+    commands: [
+      'close',
+      'goToAlias',
+      'identify',
+      'open',
+      'saveAlias',
+      'setClosure',
+      'setName',
+      'stop',
+    ],
+    states: { 'core:ClosureState': 0 },
+    attributes: {
+      'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    },
+  });
+  const { gladys, overkiz, handlers } = setup({ devices: [shutter] });
+  await handlers.gladysConnected();
+
+  const [discovered] = gladys.fake.discoveredDevices;
+  const my = discovered.features.find((f) => f.external_id.endsWith(':my_position'));
+  assert.ok(my, 'the discovered shutter carries the "My" button');
+  forgetReceived(gladys);
+
+  await handlers.setValue(discovered, my, 1);
+
+  assert.deepEqual(overkiz.calls.execute[0].command, { name: 'goToAlias', parameters: ['1'] });
+  assert.equal(stateBatches(gladys).length, 0, 'a push button has no state to echo');
+});
+
 test('a command on an unknown device or feature is rejected', async () => {
   const { handlers } = setup();
   await handlers.gladysConnected();
@@ -775,7 +809,9 @@ test('the dump action asks for a connection first', async () => {
 test('the dump action writes every device to the logs', async () => {
   const lines = [];
   const gladys = createTestGladys({ config: VALID_CONFIG });
-  const pool = makeFakeOverkizPool({ 1: { devices: [makeWaterHeater()] } });
+  const heater = makeWaterHeater();
+  heater.attributes = [{ name: 'core:Manufacturer', value: 'Atlantic' }];
+  const pool = makeFakeOverkizPool({ 1: { devices: [heater] } });
   const handlers = createHandlers({
     gladys,
     createOverkiz: pool.createOverkiz,
@@ -796,6 +832,7 @@ test('the dump action writes every device to the logs', async () => {
   );
   assert.ok(payload.commands.includes('setDHWMode'));
   assert.ok(payload.states.some((s) => s.name === 'io:DHWModeState'));
+  assert.deepEqual(payload.attributes, [{ name: 'core:Manufacturer', value: 'Atlantic' }]);
   // The dump carries the hub serial number, so the message says so.
   assert.match(message.fr, /1 appareil/);
   assert.match(message.fr, /numéro de série/);
