@@ -268,8 +268,8 @@ test('buildCommand maps the shutter state to open/close/stop', () => {
   assert.deepEqual(buildCommand(device, { key: 'state' }, 0), { name: 'stop', parameters: [] });
 });
 
-// A TaHoma Switch shutter as the cloud describes it: `ogp` devices have no `my`
-// command, their "My" is alias 1 of `goToAlias`.
+// A TaHoma Switch shutter as a user's dump describes it: `ogp` devices have no
+// `my` command, their "My" is the favorite1 alias of `goToAlias`.
 const OGP_SHUTTER = {
   deviceURL: 'ogp://2117-8895-9275/10252080',
   uiClass: 'Shutter',
@@ -285,6 +285,10 @@ const OGP_SHUTTER = {
     'stop',
   ],
   states: { 'core:ClosureState': 0 },
+  attributes: {
+    'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    'core:Technology': 'io2way',
+  },
 };
 
 test('a cover with a "My" position exposes it as a write-only push button', () => {
@@ -305,6 +309,13 @@ test('a cover with a "My" position exposes it as a write-only push button', () =
 test('buildCommand sends an ogp cover to its "My" position through alias 1', () => {
   const device = makeDevice(OGP_SHUTTER);
   assert.deepEqual(buildCommand(device, { key: 'my_position' }, 1), {
+    name: 'goToAlias',
+    parameters: ['1'],
+  });
+  // An ogp cover that lists no alias at all still gets alias 1, as in Home
+  // Assistant.
+  const unlisted = makeDevice({ ...OGP_SHUTTER, attributes: {} });
+  assert.deepEqual(buildCommand(unlisted, { key: 'my_position' }, 1), {
     name: 'goToAlias',
     parameters: ['1'],
   });
@@ -335,6 +346,9 @@ test('TaHoma Switch screens and awnings get the "My" button too', () => {
       'stop',
     ],
     states: { 'core:ClosureState': 0 },
+    attributes: {
+      'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    },
   });
   const awning = makeDevice({
     deviceURL: 'ogp://2117-8895-9275/8456018',
@@ -354,6 +368,11 @@ test('TaHoma Switch screens and awnings get the "My" button too', () => {
       'undeploy',
     ],
     states: { 'core:DeploymentState': 0 },
+    attributes: {
+      'core:SupportedAliases': [
+        { id: '1', type: 'favorite1', features: ['rollUpRollOutPosition'] },
+      ],
+    },
   });
   const ids = fakeGladys.externalIds('overkiz', 'x');
   for (const device of [screen, awning]) {

@@ -569,8 +569,10 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
   return entries;
 }
 
-// Covers whose `goToAlias` is not trusted without the alias list: a gate or a
-// garage door has no documented "My" favourite behind alias 1.
+// Covers whose `goToAlias` is not trusted without the alias list: the aliases
+// of a gate or a garage door are "pedestrian" or "ventilation" ones, never a
+// favourite (as the `core:SupportedNodeDefinitions` of a TaHoma Switch RTS
+// bridge lists them).
 const MY_ALIAS_EXCLUDED_UI_CLASSES = new Set(['GarageDoor', 'Gate']);
 
 function attributeValue(device, name) {

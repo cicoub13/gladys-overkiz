@@ -254,6 +254,9 @@ test('the "My" button of a TaHoma Switch shutter is accepted by Gladys and sends
       'stop',
     ],
     states: { 'core:ClosureState': 0 },
+    attributes: {
+      'core:SupportedAliases': [{ id: '1', type: 'favorite1', features: ['openClosePosition'] }],
+    },
   });
   const { gladys, overkiz, handlers } = setup({ devices: [shutter] });
   await handlers.gladysConnected();
