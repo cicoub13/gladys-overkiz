@@ -1,8 +1,10 @@
 # Intégration Overkiz pour Gladys Assistant
 
+## Présentation
+
 Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma, TaHoma Switch, Connexoon, Atlantic Cozytouch, Rexel Energeasy Connect, Hitachi Hi Kumo et Bouygues Flexom sont supportées via l'API cloud Overkiz.
 
-## Fonctionnalités
+### Fonctionnalités
 
 - **Volets et ouvrants** : volets roulants, stores, screens, stores vénitiens, rideaux, pergolas, portes de garage, portails et fenêtres — ouvrir, fermer, stopper, régler la position et envoyer sur la position favorite « My ».
 - **Lampes** : marche/arrêt et luminosité.
@@ -13,7 +15,7 @@ Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma,
 
 Les états sont rafraîchis en quasi temps réel via l'API d'événements Overkiz : un volet actionné depuis une télécommande physique est reflété dans Gladys en quelques secondes.
 
-## Ce qui n'est pas encore supporté
+### Ce qui n'est pas encore supporté
 
 - **Chauffage** : radiateurs, planchers chauffants et pompes à chaleur (`HeatingSystem`) ne sont pas encore convertis en appareils Gladys. Les box **Atlantic Cozytouch**, **Thermor**, **Sauter** et **Hitachi Hi Kumo** se connectent bien et leurs chauffe-eau sont supportés, mais leurs appareils de chauffage n'apparaîtront pas encore dans la découverte.
 - **Les chauffe-eau autres qu'Atlantic / Thermor / Sauter** sont convertis pour ce qu'ils rapportent, mais leurs commandes spécifiques (Hitachi Hi Kumo notamment) ne sont pas encore câblées : les capteurs fonctionneront, certaines commandes manqueront.
@@ -25,6 +27,7 @@ Les états sont rafraîchis en quasi temps réel via l'API d'événements Overki
 - **Gladys 4.86 ou supérieur.**
 - Une box Overkiz (Somfy TaHoma, TaHoma Switch, Connexoon, Cozytouch...) déjà configurée avec l'application du fabricant.
 - L'email et le mot de passe de votre compte fabricant (les mêmes identifiants que dans l'application TaHoma / Cozytouch).
+- Un accès à Internet depuis la machine Gladys : l'intégration dialogue avec l'API cloud Overkiz.
 
 ## Configuration
 
@@ -49,6 +52,8 @@ vide de la liste **Serveur** : ce n'est pas une valeur valide et l'enregistremen
 La **période d'interrogation des événements** est un réglage unique, partagé par tous les comptes.
 
 ## Dépannage
+
+Les logs de l'intégration sont accessibles dans Gladys, depuis l'onglet **Configuration** de l'intégration, avec les commandes de supervision (démarrer, arrêter, redémarrer…).
 
 - **Connexion impossible** : vérifiez le serveur sélectionné et vos identifiants en vous connectant à l'application du fabricant. Somfy peut verrouiller temporairement le compte après trop de tentatives échouées.
 - **Un seul de mes comptes se connecte** : le statut de connexion passe au rouge dès qu'un compte configuré échoue, et nomme le fautif — les autres continuent de fonctionner normalement. **Tester la connexion** détaille compte par compte.

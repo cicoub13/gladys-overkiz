@@ -1,8 +1,10 @@
 # Overkiz integration for Gladys Assistant
 
+## Overview
+
 Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma Switch, Connexoon, Atlantic Cozytouch, Rexel Energeasy Connect, Hitachi Hi Kumo and Bouygues Flexom hubs are supported through the Overkiz cloud API.
 
-## What it does
+### What it does
 
 - **Covers**: roller shutters, awnings, screens, venetian blinds, curtains, pergolas, garage doors, gates and windows — open, close, stop, set the position and send to their "My" favourite position.
 - **Lights**: on/off and brightness.
@@ -13,7 +15,7 @@ Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma S
 
 Device states are refreshed in near real time through the Overkiz event API, so a shutter moved from a physical remote is reflected in Gladys within seconds.
 
-## Not supported yet
+### Not supported yet
 
 - **Heating**: radiators, underfloor heating and heat pumps (`HeatingSystem`) are not mapped to Gladys devices yet. **Atlantic Cozytouch**, **Thermor**, **Sauter** and **Hitachi Hi Kumo** hubs do connect and their water heaters are supported, but their heating devices will not show up in discovery yet.
 - **Water heaters other than Atlantic / Thermor / Sauter** are mapped for what they report, but their vendor-specific commands (Hitachi Hi Kumo in particular) are not wired yet: expect the sensors to work and some controls to be missing.
@@ -25,6 +27,7 @@ Device states are refreshed in near real time through the Overkiz event API, so 
 - **Gladys 4.86 or later.**
 - An Overkiz-based hub (Somfy TaHoma, TaHoma Switch, Connexoon, Cozytouch...) already set up with the vendor's app.
 - The email and password of your vendor account (the same credentials you use in the TaHoma / Cozytouch app).
+- Internet access from the Gladys machine: the integration talks to the Overkiz cloud API.
 
 ## Configuration
 
@@ -49,6 +52,8 @@ To stop using an account, clear its **email** and save. Avoid picking the blank 
 The **event polling period** is a single setting shared by every account.
 
 ## Troubleshooting
+
+The integration logs are available in Gladys, from the **Configuration** tab of the integration, alongside the supervision controls (start, stop, restart…).
 
 - **Connection failed**: double-check the server selection and your credentials by logging into the vendor's app. Somfy may temporarily lock the account after too many failed attempts.
 - **Only one of my accounts connects**: the connection status turns red as soon as one configured account fails, and names the one at fault — the others keep working normally. **Test the connection** reports each account separately.
