@@ -12,12 +12,14 @@ Control your Overkiz-based devices from Gladys Assistant: Somfy TaHoma, TaHoma S
 - **Sensors**: temperature, humidity, luminance, contact (opening), occupancy (motion), smoke, water leak, CO2 and electric power/energy.
 - **Battery**: every device that reports one, covers and lights included. Devices with a gauge get a battery level in percent; those that only report a status — most IO and RTS sensors — get a "low battery" indicator instead.
 - **Water heaters**: operating mode (eco, manual, auto, away), boost, hot water setpoint, hot water left (in litres drawable at 40 °C), whether the appliance is heating, and the water temperature.
+- **Hitachi air conditioners** (Hi Kumo): on/off, mode (auto, cooling, heating, drying, fan), setpoint, fan speed, vertical and horizontal swing, and the room temperature.
 
 Device states are refreshed in near real time through the Overkiz event API, so a shutter moved from a physical remote is reflected in Gladys within seconds.
 
 ### Not supported yet
 
-- **Heating**: radiators, underfloor heating and heat pumps (`HeatingSystem`) are not mapped to Gladys devices yet. **Atlantic Cozytouch**, **Thermor**, **Sauter** and **Hitachi Hi Kumo** hubs do connect and their water heaters are supported, but their heating devices will not show up in discovery yet.
+- **Heating**: radiators, underfloor heating and heat pumps (`HeatingSystem`) are not mapped to Gladys devices yet. **Atlantic Cozytouch**, **Thermor**, **Sauter** and **Hitachi Hi Kumo** hubs do connect and their water heaters are supported, but their heating devices will not show up in discovery yet. Hitachi air conditioners are the exception.
+- **Hitachi air conditioners**: the holiday mode is kept as it is but cannot be changed from Gladys. Units that Overkiz drives through the `ovp` protocol instead of `hlrrwifi` are not mapped yet: use the **List the raw devices** action and share its output if yours does not show up.
 - **Water heaters other than Atlantic / Thermor / Sauter** are mapped for what they report, but their vendor-specific commands (Hitachi Hi Kumo in particular) are not wired yet: expect the sensors to work and some controls to be missing.
 - **Locks, alarms and ventilation** (`DoorLock`, `Alarm`, `AirFlow`).
 - On metering plugs and modules, Overkiz often publishes the power reading on a separate **sub-device**: it then appears as its own device in discovery, carrying the same name as its parent.

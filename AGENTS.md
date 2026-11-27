@@ -52,7 +52,10 @@ are in `CHANGELOG.md`.
   `[a-z0-9]` runs → `-`). No account/slot in ids (`test/compat.test.js` enforces it).
 - Feature keys (`src/mapping.js`): position, state, binary, brightness, temperature, humidity,
   luminance, contact, occupancy, smoke, water, co2, power, energy, battery, battery_low, mode,
-  boost, target_temperature, remaining_hot_water, heating, water_temperature.
+  boost, target_temperature, remaining_hot_water, heating, water_temperature, fan_speed,
+  swing_vertical, swing_horizontal. The same key can mean different things on different
+  appliances (`mode`, `binary`, `target_temperature` on a Hitachi heat pump): `buildCommand`
+  dispatches the Hitachi heat pump before looking at the key.
 - Device param `DEVICE_URL` holds the raw deviceURL.
 - Config keys: slot 1 unsuffixed (`server`, `username`, `password`), slots 2–3 suffixed `_2`/`_3`,
   plus global `polling_period`; `*_intro`/`advanced` are sections. Only `readLegacySlots` in
@@ -71,6 +74,12 @@ are in `CHANGELOG.md`.
 - Water heaters: `io` vs `modbuslink` dialect (`dhwDialect`) give `setDHWMode` values different
   meanings; `modbuslink` away mode needs start/end dates. `stateToGladysValue` returning null
   means "publish nothing" (unknown battery words, presets...).
+- Hitachi air-to-air heat pumps (`HitachiAirToAirHeatPump`, `hlrrwifi:` only; `ovp:` takes other
+  `globalControl` parameters): `globalControl` sets everything at once, so each command backfills
+  the rest from the device states. The command carries `expectedStates`, which `account.setValue`
+  writes with `updateStates` once Overkiz accepts it, so back-to-back commands (scenes) don't
+  backfill stale values. AC value enums (`AC_MODE`, `AC_FAN_SPEED`, `AC_SWING`) are local, like
+  `WATER_HEATER_MODE`.
 - Unmapped appliances: use the `dump_devices` action output (`Device dump: {json}` log lines);
   `makeAtlanticModbuslinkWaterHeater` in `test/helpers.js` is a real captured device.
 

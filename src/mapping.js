@@ -27,6 +27,34 @@ export const WATER_HEATER_MODE = {
   PROGRAM: 6,
 };
 
+// Gladys AC_MODE, AC_FAN_SPEED and AC_SWING_HORIZONTAL / AC_SWING_VERTICAL:
+// the value enumerations of the air-conditioning category, which the SDK does
+// not mirror either. The two swing enumerations share their first two values,
+// the only ones used here.
+export const AC_MODE = {
+  AUTO: 0,
+  COOLING: 1,
+  HEATING: 2,
+  DRYING: 3,
+  FAN: 4,
+};
+
+export const AC_FAN_SPEED = {
+  AUTO: 0,
+  LOW: 1,
+  LOW_MID: 2,
+  MID: 3,
+  MID_HIGH: 4,
+  HIGH: 5,
+  QUIET: 6,
+  TURBO: 7,
+};
+
+export const AC_SWING = {
+  OFF: 0,
+  SWING: 1,
+};
+
 // Overkiz state names (subset of pyoverkiz OverkizState)
 export const STATES = {
   CLOSURE: 'core:ClosureState',
@@ -77,6 +105,13 @@ export const STATES = {
   DHW_CAPACITY_MODBUSLINK: 'modbuslink:DHWCapacityState',
   HEATING_STATUS: 'core:HeatingStatusState',
   HEATING_STATUS_MODBUSLINK: 'modbuslink:HeatingStatusState',
+  // Hitachi air-to-air heat pumps (Hi Kumo, `hlrrwifi` protocol)
+  HLRRWIFI_MAIN_OPERATION: 'hlrrwifi:MainOperationState',
+  HLRRWIFI_MODE_CHANGE: 'hlrrwifi:ModeChangeState',
+  HLRRWIFI_FAN_SPEED: 'hlrrwifi:FanSpeedState',
+  HLRRWIFI_SWING: 'hlrrwifi:SwingState',
+  HLRRWIFI_LEAVE_HOME: 'hlrrwifi:LeaveHomeState',
+  HLRRWIFI_ROOM_TEMPERATURE: 'hlrrwifi:RoomTemperatureState',
 };
 
 // Overkiz uiClass values considered as covers (see HA OVERKIZ_DEVICE_TO_PLATFORM)
@@ -292,6 +327,223 @@ function dhwDialect(stateNames) {
   return stateNames.has(STATES.DHW_MODE_MODBUSLINK) ? DHW_DIALECT_MODBUSLINK : DHW_DIALECT_IO;
 }
 
+// --- Hitachi air-to-air heat pumps --------------------------------------------
+// The Hi Kumo air conditioners (`hlrrwifi` protocol) take a single command,
+// `globalControl`, which sets EVERYTHING at once: power, setpoint, fan speed,
+// mode, swing and holiday mode, in that order. Changing one of them means
+// sending the others back as they are. The vocabularies below are the ones
+// Home Assistant reads and writes for this protocol.
+//
+// The same widget also exists on the `ovp` protocol, whose `globalControl`
+// takes other parameters (an auto/manual flag, and a temperature offset
+// instead of a setpoint in auto mode): it is deliberately left unmapped until
+// one is captured.
+const HITACHI_AIR_TO_AIR_WIDGET = 'HitachiAirToAirHeatPump';
+const HITACHI_HLRRWIFI_PREFIX = 'hlrrwifi:';
+
+// Overkiz reports the automatic mode with the direction it is currently
+// running in (`autoCooling`, `autoHeating`, sometimes `auto cooling`), but
+// only takes a plain `auto` back.
+const HITACHI_MODE_READ = {
+  auto: AC_MODE.AUTO,
+  autocooling: AC_MODE.AUTO,
+  autoheating: AC_MODE.AUTO,
+  cooling: AC_MODE.COOLING,
+  heating: AC_MODE.HEATING,
+  dehumidify: AC_MODE.DRYING,
+  fan: AC_MODE.FAN,
+};
+const HITACHI_MODE_WRITE = {
+  [AC_MODE.AUTO]: 'auto',
+  [AC_MODE.COOLING]: 'cooling',
+  [AC_MODE.HEATING]: 'heating',
+  [AC_MODE.DRYING]: 'dehumidify',
+  [AC_MODE.FAN]: 'fan',
+};
+const HITACHI_MODE_OPTIONS = [
+  { value: AC_MODE.AUTO, label: 'Auto' },
+  { value: AC_MODE.COOLING, label: 'Cooling' },
+  { value: AC_MODE.HEATING, label: 'Heating' },
+  { value: AC_MODE.DRYING, label: 'Drying' },
+  { value: AC_MODE.FAN, label: 'Fan' },
+];
+
+// `hi`, `med` and `lo` are what the `ovp` sibling reports; read them too
+// rather than leave the fan speed empty should this protocol use them.
+const HITACHI_FAN_READ = {
+  auto: AC_FAN_SPEED.AUTO,
+  silent: AC_FAN_SPEED.QUIET,
+  low: AC_FAN_SPEED.LOW,
+  lo: AC_FAN_SPEED.LOW,
+  medium: AC_FAN_SPEED.MID,
+  med: AC_FAN_SPEED.MID,
+  high: AC_FAN_SPEED.HIGH,
+  hi: AC_FAN_SPEED.HIGH,
+};
+const HITACHI_FAN_WRITE = {
+  [AC_FAN_SPEED.AUTO]: 'auto',
+  [AC_FAN_SPEED.QUIET]: 'silent',
+  [AC_FAN_SPEED.LOW]: 'low',
+  [AC_FAN_SPEED.MID]: 'medium',
+  [AC_FAN_SPEED.HIGH]: 'high',
+};
+const HITACHI_FAN_OPTIONS = [
+  { value: AC_FAN_SPEED.AUTO, label: 'Auto' },
+  { value: AC_FAN_SPEED.QUIET, label: 'Silent' },
+  { value: AC_FAN_SPEED.LOW, label: 'Low' },
+  { value: AC_FAN_SPEED.MID, label: 'Medium' },
+  { value: AC_FAN_SPEED.HIGH, label: 'High' },
+];
+
+// One Overkiz state carries both swing axes; Gladys has a feature per axis.
+const HITACHI_SWING_AXES = {
+  stop: { vertical: false, horizontal: false },
+  vertical: { vertical: true, horizontal: false },
+  horizontal: { vertical: false, horizontal: true },
+  both: { vertical: true, horizontal: true },
+};
+const HITACHI_SWING_OPTIONS = [
+  { value: AC_SWING.OFF, label: 'Off' },
+  { value: AC_SWING.SWING, label: 'Swing' },
+];
+
+// The setpoint range of these units; they only take whole degrees.
+const HITACHI_MIN_TEMPERATURE = 16;
+const HITACHI_MAX_TEMPERATURE = 32;
+
+function isHitachiAirToAir(device, commands) {
+  return (
+    device.definition?.widgetName === HITACHI_AIR_TO_AIR_WIDGET &&
+    Boolean(device.controllableName?.startsWith(HITACHI_HLRRWIFI_PREFIX)) &&
+    commands.has('globalControl')
+  );
+}
+
+/** An Overkiz word, lower-cased and without spaces, or null. */
+function overkizWord(rawValue) {
+  return typeof rawValue === 'string' ? rawValue.replace(/\s+/g, '').toLowerCase() : null;
+}
+
+/**
+ * `table[key]` for the keys the table itself declares: a word coming from the
+ * cloud must not reach `Object.prototype` (`constructor` is lower case too).
+ */
+function lookup(table, key) {
+  return key !== null && Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+function hitachiSwingAxes(device) {
+  return lookup(HITACHI_SWING_AXES, overkizWord(device.get(STATES.HLRRWIFI_SWING))) ?? null;
+}
+
+function hitachiSwingWord({ vertical, horizontal }) {
+  if (vertical) {
+    return horizontal ? 'both' : 'vertical';
+  }
+  return horizontal ? 'horizontal' : 'stop';
+}
+
+/**
+ * The `globalControl` parameters as the appliance last reported them, in the
+ * words it takes back. The fallbacks are Home Assistant's, for a state the
+ * appliance does not report (or reports in a word it would not accept).
+ */
+function hitachiCurrentControl(device) {
+  const word = (stateName) => overkizWord(device.get(stateName));
+  const rawTemperature = device.get(STATES.TARGET_TEMPERATURE);
+  return {
+    mainOperation: word(STATES.HLRRWIFI_MAIN_OPERATION) === 'off' ? 'off' : 'on',
+    // `Number(null)` is 0, which would be sent as a setpoint.
+    targetTemperature:
+      rawTemperature === null || rawTemperature === undefined
+        ? Number.NaN
+        : Math.round(Number(rawTemperature)),
+    fanSpeed:
+      lookup(HITACHI_FAN_WRITE, lookup(HITACHI_FAN_READ, word(STATES.HLRRWIFI_FAN_SPEED))) ??
+      'auto',
+    mode:
+      lookup(HITACHI_MODE_WRITE, lookup(HITACHI_MODE_READ, word(STATES.HLRRWIFI_MODE_CHANGE))) ??
+      'auto',
+    swing: hitachiSwingAxes(device) ? word(STATES.HLRRWIFI_SWING) : 'stop',
+    // Holiday mode has no Gladys feature: it is only ever sent back as it is.
+    leaveHome: word(STATES.HLRRWIFI_LEAVE_HOME) === 'on' ? 'on' : 'off',
+  };
+}
+
+/**
+ * The `globalControl` command for a Gladys command on a Hitachi heat pump.
+ *
+ * It carries `expectedStates`, the one Overkiz state it changes: everything
+ * else is sent back as the appliance last reported it, and the cloud only
+ * reports the change a polling period later. A scene turning the unit on, then
+ * picking a mode, then a setpoint, back to back, would otherwise switch it off
+ * again with its second command. The caller records these states on the
+ * device as soon as the command is accepted.
+ */
+function buildHitachiAirToAirCommand(device, key, value) {
+  const numeric = Number(value);
+  const control = hitachiCurrentControl(device);
+  let changed;
+
+  if (key === 'binary') {
+    control.mainOperation = numeric === 1 ? 'on' : 'off';
+    changed = { name: STATES.HLRRWIFI_MAIN_OPERATION, value: control.mainOperation };
+  } else if (key === 'mode') {
+    const mode = lookup(HITACHI_MODE_WRITE, numeric);
+    if (!mode) {
+      return null;
+    }
+    control.mode = mode;
+    changed = { name: STATES.HLRRWIFI_MODE_CHANGE, value: mode };
+  } else if (key === 'target_temperature') {
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    control.targetTemperature = Math.min(
+      HITACHI_MAX_TEMPERATURE,
+      Math.max(HITACHI_MIN_TEMPERATURE, Math.round(numeric)),
+    );
+    changed = { name: STATES.TARGET_TEMPERATURE, value: control.targetTemperature };
+  } else if (key === 'fan_speed') {
+    const fanSpeed = lookup(HITACHI_FAN_WRITE, numeric);
+    if (!fanSpeed) {
+      return null;
+    }
+    control.fanSpeed = fanSpeed;
+    changed = { name: STATES.HLRRWIFI_FAN_SPEED, value: fanSpeed };
+  } else if (key === 'swing_vertical' || key === 'swing_horizontal') {
+    // Only on and off: the fixed positions of the Gladys enumeration do not
+    // exist on this protocol.
+    if (numeric !== AC_SWING.OFF && numeric !== AC_SWING.SWING) {
+      return null;
+    }
+    const axes = { ...HITACHI_SWING_AXES[control.swing] };
+    axes[key === 'swing_vertical' ? 'vertical' : 'horizontal'] = numeric === AC_SWING.SWING;
+    control.swing = hitachiSwingWord(axes);
+    changed = { name: STATES.HLRRWIFI_SWING, value: control.swing };
+  } else {
+    return null;
+  }
+
+  // `globalControl` refuses a missing parameter, and there is no setpoint to
+  // send back if the appliance never reported one.
+  if (!Number.isFinite(control.targetTemperature)) {
+    return null;
+  }
+  return {
+    name: 'globalControl',
+    parameters: [
+      control.mainOperation,
+      control.targetTemperature,
+      control.fanSpeed,
+      control.mode,
+      control.swing,
+      control.leaveHome,
+    ],
+    expectedStates: [changed],
+  };
+}
+
 /**
  * Build a stable, [a-z0-9-] safe platform id from an Overkiz deviceURL
  * (e.g. `io://1234-5678-9012/12345678` -> `io-1234-5678-9012-12345678`).
@@ -330,6 +582,9 @@ const FEATURE_NAMES = {
   remaining_hot_water: 'Available hot water',
   heating: 'Heating',
   water_temperature: 'Water temperature',
+  fan_speed: 'Fan speed',
+  swing_vertical: 'Vertical swing',
+  swing_horizontal: 'Horizontal swing',
 };
 
 function feature(ids, key, overrides) {
@@ -569,6 +824,128 @@ function mapWaterHeaterFeatures(ids, commands, states, stateValues) {
   return entries;
 }
 
+/**
+ * Build the air-conditioning features of a Hitachi air-to-air heat pump.
+ *
+ * Every control goes through `globalControl`, which the appliance always
+ * offers, so they are all writable. Swing is split into the two Gladys axes
+ * only when the appliance reports it: Home Assistant offers no swing control
+ * without the state either.
+ */
+function mapHitachiAirToAirFeatures(ids, states) {
+  const entries = [
+    {
+      key: 'binary',
+      stateName: STATES.HLRRWIFI_MAIN_OPERATION,
+      gladysFeature: feature(ids, 'binary', {
+        category: DEVICE_FEATURE_CATEGORIES.AIR_CONDITIONING,
+        type: DEVICE_FEATURE_TYPES.AIR_CONDITIONING.BINARY,
+        min: 0,
+        max: 1,
+        read_only: false,
+      }),
+    },
+    {
+      key: 'mode',
+      stateName: null,
+      watchedStates: [STATES.HLRRWIFI_MODE_CHANGE],
+      derive: (device) =>
+        lookup(HITACHI_MODE_READ, overkizWord(device.get(STATES.HLRRWIFI_MODE_CHANGE))) ?? null,
+      gladysFeature: feature(ids, 'mode', {
+        category: DEVICE_FEATURE_CATEGORIES.AIR_CONDITIONING,
+        type: DEVICE_FEATURE_TYPES.AIR_CONDITIONING.MODE,
+        min: AC_MODE.AUTO,
+        max: AC_MODE.FAN,
+        read_only: false,
+        supported_options: HITACHI_MODE_OPTIONS.map((option, index) => ({
+          ...option,
+          sort_order: index,
+        })),
+      }),
+    },
+    {
+      key: 'target_temperature',
+      stateName: STATES.TARGET_TEMPERATURE,
+      gladysFeature: feature(ids, 'target_temperature', {
+        category: DEVICE_FEATURE_CATEGORIES.AIR_CONDITIONING,
+        type: DEVICE_FEATURE_TYPES.AIR_CONDITIONING.TARGET_TEMPERATURE,
+        unit: DEVICE_FEATURE_UNITS.CELSIUS,
+        min: HITACHI_MIN_TEMPERATURE,
+        max: HITACHI_MAX_TEMPERATURE,
+        step: 1,
+        read_only: false,
+      }),
+    },
+    {
+      key: 'fan_speed',
+      stateName: null,
+      watchedStates: [STATES.HLRRWIFI_FAN_SPEED],
+      derive: (device) =>
+        lookup(HITACHI_FAN_READ, overkizWord(device.get(STATES.HLRRWIFI_FAN_SPEED))) ?? null,
+      gladysFeature: feature(ids, 'fan_speed', {
+        category: DEVICE_FEATURE_CATEGORIES.AIR_CONDITIONING,
+        type: DEVICE_FEATURE_TYPES.AIR_CONDITIONING.FAN_SPEED,
+        min: AC_FAN_SPEED.AUTO,
+        max: AC_FAN_SPEED.TURBO,
+        read_only: false,
+        supported_options: HITACHI_FAN_OPTIONS.map((option, index) => ({
+          ...option,
+          sort_order: index,
+        })),
+      }),
+    },
+  ];
+
+  if (states.has(STATES.HLRRWIFI_SWING)) {
+    for (const [key, axis, type] of [
+      ['swing_vertical', 'vertical', DEVICE_FEATURE_TYPES.AIR_CONDITIONING.SWING_VERTICAL],
+      ['swing_horizontal', 'horizontal', DEVICE_FEATURE_TYPES.AIR_CONDITIONING.SWING_HORIZONTAL],
+    ]) {
+      entries.push({
+        key,
+        stateName: null,
+        watchedStates: [STATES.HLRRWIFI_SWING],
+        derive: (device) => {
+          const axes = hitachiSwingAxes(device);
+          if (!axes) {
+            return null;
+          }
+          return axes[axis] ? AC_SWING.SWING : AC_SWING.OFF;
+        },
+        gladysFeature: feature(ids, key, {
+          category: DEVICE_FEATURE_CATEGORIES.AIR_CONDITIONING,
+          type,
+          min: AC_SWING.OFF,
+          max: AC_SWING.SWING,
+          read_only: false,
+          supported_options: HITACHI_SWING_OPTIONS.map((option, index) => ({
+            ...option,
+            sort_order: index,
+          })),
+        }),
+      });
+    }
+  }
+
+  // The room temperature measured by the indoor unit: a temperature like any
+  // other, so a `temperature-sensor` feature rather than an air-conditioning one.
+  if (states.has(STATES.HLRRWIFI_ROOM_TEMPERATURE)) {
+    entries.push({
+      key: 'temperature',
+      stateName: STATES.HLRRWIFI_ROOM_TEMPERATURE,
+      gladysFeature: feature(ids, 'temperature', {
+        category: DEVICE_FEATURE_CATEGORIES.TEMPERATURE_SENSOR,
+        type: DEVICE_FEATURE_TYPES.SENSOR.DECIMAL,
+        unit: DEVICE_FEATURE_UNITS.CELSIUS,
+        min: -100,
+        max: 200,
+      }),
+    });
+  }
+
+  return entries;
+}
+
 // Covers whose `goToAlias` is not trusted without the alias list: the aliases
 // of a gate or a garage door are "pedestrian" or "ventilation" ones, never a
 // favourite (as the `core:SupportedNodeDefinitions` of a TaHoma Switch RTS
@@ -744,6 +1121,12 @@ export function mapDeviceFeatures(device, ids) {
   if (uiClass === WATER_HEATER_UI_CLASS) {
     entries.push(...mapWaterHeaterFeatures(ids, commands, states, stateValues));
     // fall through: these appliances also report energy and battery below
+  }
+
+  // --- Air conditioners ---------------------------------------------------------
+  if (isHitachiAirToAir(device, commands)) {
+    entries.push(...mapHitachiAirToAirFeatures(ids, states));
+    // fall through: nothing below matches today, but a later energy state would
   }
 
   // --- Switches / plugs / sirens ------------------------------------------------
@@ -1139,6 +1522,11 @@ function buildWaterHeaterBoostCommands(commands, on) {
  * the matching `refreshXxx` command has been sent, and switching mode on these
  * appliances means leaving boost and absence behind first.
  *
+ * A single command may also carry `expectedStates`, the Overkiz states it
+ * changes, for the caller to record on the device once it is accepted (Hitachi
+ * heat pumps: see `buildHitachiAirToAirCommand`). Only `name` and `parameters`
+ * reach Overkiz.
+ *
  * @param {object} device the Overkiz device
  * @param {{ key: string, stateName: string | null }} entry feature entry from `mapDeviceFeatures`
  * @param {number} value the value Gladys asks for
@@ -1148,6 +1536,12 @@ function buildWaterHeaterBoostCommands(commands, on) {
 export function buildCommand(device, entry, value, now = () => new Date()) {
   const commands = new Set((device.definition?.commands ?? []).map((c) => c.commandName));
   const { key } = entry;
+
+  // First: its feature keys are the same words as those of the lights and the
+  // water heaters, with a command of its own behind every one of them.
+  if (isHitachiAirToAir(device, commands)) {
+    return buildHitachiAirToAirCommand(device, key, value);
+  }
 
   if (key === 'mode') {
     const stateNames = new Set((device.states ?? []).map((s) => s.name));

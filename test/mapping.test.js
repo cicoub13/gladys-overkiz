@@ -7,12 +7,17 @@ import {
   buildCommand,
   buildDiscoveredDevice,
   WATER_HEATER_MODE,
+  AC_MODE,
+  AC_FAN_SPEED,
+  AC_SWING,
 } from '../src/mapping.js';
 import {
   makeExternalIds,
   makeOverkizDevice as makeDevice,
   makeWaterHeater,
   makeAtlanticModbuslinkWaterHeater,
+  makeHitachiAirToAirHeatPump,
+  makeHitachiWifiBridge,
 } from './helpers.js';
 
 const fakeGladys = { externalIds: makeExternalIds };
@@ -1072,4 +1077,251 @@ test('the two appliance families do not share a setDHWMode vocabulary', () => {
   assert.equal(command(io, WATER_HEATER_MODE.AUTO), 'autoMode');
   assert.equal(derive(io, 'autoMode'), WATER_HEATER_MODE.AUTO);
   assert.equal(derive(io, 'manualEcoActive'), WATER_HEATER_MODE.ECO);
+});
+
+// --- Hitachi air-to-air heat pumps ------------------------------------------
+
+/** Read a mapped feature the way the account does. */
+function readFeature(entries, device, key) {
+  const entry = entries.find((e) => e.key === key);
+  return entry.derive
+    ? entry.derive(device)
+    : stateToGladysValue(entry, device.get(entry.stateName));
+}
+
+/** The command for a Gladys value on one feature of a Hitachi heat pump. */
+function hitachiCommand(device, key, value) {
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entry = mapDeviceFeatures(device, ids).find((e) => e.key === key);
+  return buildCommand(device, entry, value);
+}
+
+test('the air-conditioning constants match the Gladys taxonomy', () => {
+  assert.deepEqual(AC_MODE, { AUTO: 0, COOLING: 1, HEATING: 2, DRYING: 3, FAN: 4 });
+  assert.deepEqual(AC_FAN_SPEED, {
+    AUTO: 0,
+    LOW: 1,
+    LOW_MID: 2,
+    MID: 3,
+    MID_HIGH: 4,
+    HIGH: 5,
+    QUIET: 6,
+    TURBO: 7,
+  });
+  assert.deepEqual(AC_SWING, { OFF: 0, SWING: 1 });
+});
+
+test('a real Hitachi air conditioner maps to the air-conditioning category', () => {
+  const device = makeHitachiAirToAirHeatPump();
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const entries = mapDeviceFeatures(device, ids);
+
+  assert.deepEqual(
+    entries.map((e) => e.key),
+    [
+      'binary',
+      'mode',
+      'target_temperature',
+      'fan_speed',
+      'swing_vertical',
+      'swing_horizontal',
+      'temperature',
+    ],
+  );
+  const byKey = Object.fromEntries(entries.map((e) => [e.key, e.gladysFeature]));
+  assert.deepEqual(
+    Object.fromEntries(entries.map((e) => [e.key, [byKey[e.key].category, byKey[e.key].type]])),
+    {
+      binary: ['air-conditioning', 'binary'],
+      mode: ['air-conditioning', 'mode'],
+      target_temperature: ['air-conditioning', 'target-temperature'],
+      fan_speed: ['air-conditioning', 'fan-speed'],
+      swing_vertical: ['air-conditioning', 'swing-vertical'],
+      swing_horizontal: ['air-conditioning', 'swing-horizontal'],
+      // The room temperature is a measurement like any other.
+      temperature: ['temperature-sensor', 'decimal'],
+    },
+  );
+  for (const key of ['binary', 'mode', 'target_temperature', 'fan_speed', 'swing_vertical']) {
+    assert.equal(byKey[key].read_only, false, `${key} is writable`);
+  }
+  assert.equal(byKey.temperature.read_only, true);
+  assert.equal(byKey.target_temperature.min, 16);
+  assert.equal(byKey.target_temperature.max, 32);
+  assert.equal(byKey.target_temperature.step, 1, 'the unit only takes whole degrees');
+  assert.deepEqual(
+    byKey.mode.supported_options.map((o) => o.value),
+    [0, 1, 2, 3, 4],
+  );
+  // No low-mid, mid-high or turbo on this protocol.
+  assert.deepEqual(
+    byKey.fan_speed.supported_options.map((o) => o.label),
+    ['Auto', 'Silent', 'Low', 'Medium', 'High'],
+  );
+  assert.deepEqual(
+    byKey.swing_vertical.supported_options.map((o) => o.value),
+    [0, 1],
+  );
+
+  // Off, in automatic mode (reported as `autoCooling`), 25 °C asked, 12 °C in the room.
+  assert.equal(readFeature(entries, device, 'binary'), 0);
+  assert.equal(readFeature(entries, device, 'mode'), AC_MODE.AUTO);
+  assert.equal(readFeature(entries, device, 'target_temperature'), 25);
+  assert.equal(readFeature(entries, device, 'fan_speed'), AC_FAN_SPEED.AUTO);
+  assert.equal(readFeature(entries, device, 'swing_vertical'), AC_SWING.OFF);
+  assert.equal(readFeature(entries, device, 'swing_horizontal'), AC_SWING.OFF);
+  assert.equal(readFeature(entries, device, 'temperature'), 12);
+});
+
+test('the Wi-Fi bridge of a Hitachi air conditioner is not a device', () => {
+  assert.equal(buildDiscoveredDevice(fakeGladys, makeHitachiWifiBridge()), null);
+});
+
+test('a Hitachi air conditioner reads every mode word Overkiz uses', () => {
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const modeOf = (word) => {
+    const device = makeHitachiAirToAirHeatPump();
+    device.updateStates([{ name: 'hlrrwifi:ModeChangeState', value: word }]);
+    return readFeature(mapDeviceFeatures(device, ids), device, 'mode');
+  };
+
+  assert.equal(modeOf('autoHeating'), AC_MODE.AUTO);
+  assert.equal(modeOf('auto cooling'), AC_MODE.AUTO, 'spaced, as some units report it');
+  assert.equal(modeOf('auto'), AC_MODE.AUTO);
+  assert.equal(modeOf('cooling'), AC_MODE.COOLING);
+  assert.equal(modeOf('Heating'), AC_MODE.HEATING);
+  assert.equal(modeOf('dehumidify'), AC_MODE.DRYING);
+  assert.equal(modeOf('fan'), AC_MODE.FAN);
+  // Staying silent beats publishing a mode the unit is not in.
+  assert.equal(modeOf('circulator'), null);
+  assert.equal(modeOf('constructor'), null, 'a word never reaches Object.prototype');
+  assert.equal(modeOf(null), null);
+});
+
+test('a Hitachi air conditioner splits its swing into the two Gladys axes', () => {
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const swingOf = (word) => {
+    const device = makeHitachiAirToAirHeatPump();
+    device.updateStates([{ name: 'hlrrwifi:SwingState', value: word }]);
+    const entries = mapDeviceFeatures(device, ids);
+    return [
+      readFeature(entries, device, 'swing_vertical'),
+      readFeature(entries, device, 'swing_horizontal'),
+    ];
+  };
+
+  assert.deepEqual(swingOf('stop'), [0, 0]);
+  assert.deepEqual(swingOf('vertical'), [1, 0]);
+  assert.deepEqual(swingOf('horizontal'), [0, 1]);
+  assert.deepEqual(swingOf('both'), [1, 1]);
+  assert.deepEqual(swingOf('sideways'), [null, null]);
+});
+
+test('a Hitachi air conditioner without a swing state offers no swing control', () => {
+  const device = makeHitachiAirToAirHeatPump();
+  device.states = device.states.filter((s) => s.name !== 'hlrrwifi:SwingState');
+  const ids = fakeGladys.externalIds('overkiz', 'x');
+  const keys = mapDeviceFeatures(device, ids).map((e) => e.key);
+
+  assert.ok(!keys.includes('swing_vertical'));
+  assert.ok(!keys.includes('swing_horizontal'));
+});
+
+test('a Hitachi command sends every other parameter back as the unit reports it', () => {
+  const device = makeHitachiAirToAirHeatPump();
+
+  // power, setpoint, fan, mode, swing, holiday — `autoCooling` goes back as
+  // `auto`, the only automatic mode the command takes.
+  assert.deepEqual(hitachiCommand(device, 'binary', 1), {
+    name: 'globalControl',
+    parameters: ['on', 25, 'auto', 'auto', 'stop', 'off'],
+    expectedStates: [{ name: 'hlrrwifi:MainOperationState', value: 'on' }],
+  });
+  // A mode change leaves the unit off, as the Gladys power feature says.
+  assert.deepEqual(hitachiCommand(device, 'mode', AC_MODE.COOLING).parameters, [
+    'off',
+    25,
+    'auto',
+    'cooling',
+    'stop',
+    'off',
+  ]);
+  assert.deepEqual(hitachiCommand(device, 'mode', AC_MODE.DRYING).parameters[3], 'dehumidify');
+  assert.deepEqual(hitachiCommand(device, 'fan_speed', AC_FAN_SPEED.QUIET).parameters[2], 'silent');
+  assert.deepEqual(hitachiCommand(device, 'target_temperature', 21).parameters[1], 21);
+
+  // Holiday mode has no Gladys feature, but must survive every command.
+  device.updateStates([{ name: 'hlrrwifi:LeaveHomeState', value: 'on' }]);
+  assert.equal(hitachiCommand(device, 'binary', 0).parameters[5], 'on');
+});
+
+test('a Hitachi setpoint is a whole degree within the unit range', () => {
+  const device = makeHitachiAirToAirHeatPump();
+
+  assert.equal(hitachiCommand(device, 'target_temperature', 22.6).parameters[1], 23);
+  assert.equal(hitachiCommand(device, 'target_temperature', 40).parameters[1], 32);
+  assert.equal(hitachiCommand(device, 'target_temperature', 5).parameters[1], 16);
+  assert.equal(hitachiCommand(device, 'target_temperature', 'warm'), null);
+});
+
+test('a Hitachi swing command keeps the other axis as it is', () => {
+  const device = makeHitachiAirToAirHeatPump();
+  const swing = (key, value) => hitachiCommand(device, key, value)?.parameters[4] ?? null;
+
+  assert.equal(swing('swing_vertical', AC_SWING.SWING), 'vertical');
+  device.updateStates([{ name: 'hlrrwifi:SwingState', value: 'vertical' }]);
+  assert.equal(swing('swing_horizontal', AC_SWING.SWING), 'both');
+  device.updateStates([{ name: 'hlrrwifi:SwingState', value: 'both' }]);
+  assert.equal(swing('swing_vertical', AC_SWING.OFF), 'horizontal');
+  device.updateStates([{ name: 'hlrrwifi:SwingState', value: 'horizontal' }]);
+  assert.equal(swing('swing_horizontal', AC_SWING.OFF), 'stop');
+  // The fixed positions of the Gladys enumeration do not exist here.
+  assert.equal(swing('swing_vertical', 2), null);
+});
+
+test('a Hitachi command refuses what the unit cannot take', () => {
+  const device = makeHitachiAirToAirHeatPump();
+
+  assert.equal(hitachiCommand(device, 'mode', 7), null);
+  assert.equal(hitachiCommand(device, 'fan_speed', AC_FAN_SPEED.TURBO), null);
+  // Read-only: Gladys never commands it, and `globalControl` has no slot for it.
+  assert.equal(hitachiCommand(device, 'temperature', 20), null);
+
+  // Without a reported setpoint there is nothing to send back, and the
+  // command refuses a missing parameter.
+  device.states = device.states.filter((s) => s.name !== 'core:TargetTemperatureState');
+  assert.equal(hitachiCommand(device, 'binary', 1), null);
+});
+
+test('a Hitachi command falls back on what Home Assistant sends for unknown words', () => {
+  const device = makeHitachiAirToAirHeatPump({
+    states: {
+      'hlrrwifi:MainOperationState': 'on',
+      'hlrrwifi:ModeChangeState': 'mystery',
+      'hlrrwifi:FanSpeedState': 'hi',
+      'core:TargetTemperatureState': 24.4,
+    },
+  });
+
+  // `hi` is read as high and written back in this protocol's word for it.
+  assert.deepEqual(hitachiCommand(device, 'binary', 1).parameters, [
+    'on',
+    24,
+    'high',
+    'auto',
+    'stop',
+    'off',
+  ]);
+});
+
+test('a Hitachi heat pump on the ovp protocol is not mapped yet', () => {
+  // Same widget, but its `globalControl` takes other parameters: sending it
+  // the hlrrwifi ones would fail, or worse, set something else.
+  const device = makeHitachiAirToAirHeatPump({
+    deviceURL: 'ovp://0000-1111-2222/1',
+    controllableName: 'ovp:HLinkMainController',
+    states: { 'ovp:MainOperationState': 'off', 'core:TargetTemperatureState': 25 },
+  });
+
+  assert.equal(buildDiscoveredDevice(fakeGladys, device), null);
 });

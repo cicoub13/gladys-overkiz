@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Hitachi air conditioners (Hi Kumo).** They now show up in discovery as
+  air conditioners: turn them on and off, pick the mode (auto, cooling,
+  heating, drying, fan), the setpoint, the fan speed and the swing, and read
+  the room temperature. Several changes sent in a row, such as a scene that
+  turns the unit on then picks a mode and a setpoint, are all applied. The
+  holiday mode is kept but cannot be changed from Gladys.
+
 ## [1.7.1] - 2026-10-28
 
 ### Changed

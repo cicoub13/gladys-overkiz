@@ -35,6 +35,17 @@ export function makeOverkizDevice({
     get(stateName) {
       return this.states.find((s) => s.name === stateName)?.value ?? null;
     },
+    /** `overkiz-client`'s own setter, minus the debounced `states` event. */
+    updateStates(newStates) {
+      for (const { name, value } of newStates) {
+        const state = this.states.find((s) => s.name === name);
+        if (state) {
+          state.value = value;
+        } else {
+          this.states.push({ name, value });
+        }
+      }
+    },
   };
 }
 
@@ -136,6 +147,52 @@ export function makeAtlanticModbuslinkWaterHeater(overrides = {}) {
       'core:NumberOfShowerRemainingState': 1,
     },
     ...overrides,
+  });
+}
+
+/**
+ * A REAL Hitachi RAK-50PED air conditioner, captured from a user's Hi Kumo
+ * account with the "List the raw devices" action (serial number anonymized).
+ * Its only command is `globalControl`, which sets every parameter at once.
+ * It is idle in automatic mode, which Overkiz reports as `autoCooling`.
+ */
+export function makeHitachiAirToAirHeatPump(overrides = {}) {
+  return makeOverkizDevice({
+    deviceURL: 'hlrrwifi://0000-1111-2222/1',
+    label: 'Living Room',
+    uiClass: 'HitachiHeatingSystem',
+    widgetName: 'HitachiAirToAirHeatPump',
+    controllableName: 'hlrrwifi:HLinkMainController',
+    commands: ['globalControl'],
+    states: {
+      'hlrrwifi:MainOperationState': 'off',
+      'hlrrwifi:ModeChangeState': 'autoCooling',
+      'hlrrwifi:FanSpeedState': 'auto',
+      'hlrrwifi:TemperatureChangeState': -2,
+      'hlrrwifi:RemoconControlState': 'enable',
+      'hlrrwifi:SwingState': 'stop',
+      'hlrrwifi:RoomTemperatureState': 12,
+      'hlrrwifi:DiagnosticCodeState': 0,
+      'core:FilterConditionState': 'alert',
+      'core:ProductModelNameState': 'RAK-50PED ',
+      'hlrrwifi:LeaveHomeState': 'off',
+      'core:RSSILevelState': 100,
+      'core:TargetTemperatureState': 25,
+    },
+    ...overrides,
+  });
+}
+
+/** The Wi-Fi bridge every Hi Kumo air conditioner comes with, as captured. */
+export function makeHitachiWifiBridge() {
+  return makeOverkizDevice({
+    deviceURL: 'hlrrwifi://0000-1111-2222/0',
+    label: 'HLRR-WiFi',
+    uiClass: 'ProtocolGateway',
+    widgetName: 'HLRRWifiBridge',
+    controllableName: 'hlrrwifi:HLRRWifiBridge',
+    commands: ['getName', 'setName'],
+    states: { 'core:NameState': 'HLRR-WiFi', 'core:LocalModeState': false },
   });
 }
 

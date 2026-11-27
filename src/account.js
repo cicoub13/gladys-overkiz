@@ -349,6 +349,15 @@ export function createAccount({
       }
       await overkiz.execute(deviceUrl, command, `Gladys - ${device.name ?? deviceUrl}`);
 
+      // A command that rewrites the whole appliance (Hitachi `globalControl`)
+      // fills what it does not change from the device states. Record what it
+      // did change right away, so that the next command, sent before the cloud
+      // reports this one, does not undo it. `updateStates` is the client's own
+      // entry point for new states: it also emits them, as an event would.
+      if (command.expectedStates?.length > 0) {
+        overkizDevice.updateStates?.(command.expectedStates);
+      }
+
       // Optimistic echo: the event poller only confirms the move up to a polling
       // period later, and the UI would sit on the stale value until then. The
       // real state overwrites this one as soon as it arrives.
