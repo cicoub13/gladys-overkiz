@@ -1293,7 +1293,7 @@ test('a Hitachi command refuses what the unit cannot take', () => {
   assert.equal(hitachiCommand(device, 'binary', 1), null);
 });
 
-test('a Hitachi command falls back on what Home Assistant sends for unknown words', () => {
+test('a Hitachi command sends the reported words back as they are', () => {
   const device = makeHitachiAirToAirHeatPump({
     states: {
       'hlrrwifi:MainOperationState': 'on',
@@ -1303,15 +1303,31 @@ test('a Hitachi command falls back on what Home Assistant sends for unknown word
     },
   });
 
-  // `hi` is read as high and written back in this protocol's word for it.
+  // Rewriting a word the unit reported could change a setting nobody touched.
+  // Swing and holiday mode are not reported here: Home Assistant's fallbacks.
   assert.deepEqual(hitachiCommand(device, 'binary', 1).parameters, [
     'on',
     24,
-    'high',
-    'auto',
+    'hi',
+    'mystery',
     'stop',
     'off',
   ]);
+
+  device.updateStates([
+    { name: 'hlrrwifi:SwingState', value: 'sideways' },
+    { name: 'hlrrwifi:LeaveHomeState', value: 'prog' },
+  ]);
+  assert.deepEqual(hitachiCommand(device, 'binary', 0).parameters, [
+    'off',
+    24,
+    'hi',
+    'mystery',
+    'sideways',
+    'prog',
+  ]);
+  // A swing word it cannot read still lets one axis be switched on.
+  assert.equal(hitachiCommand(device, 'swing_vertical', AC_SWING.SWING).parameters[4], 'vertical');
 });
 
 test('a Hitachi heat pump on the ovp protocol is not mapped yet', () => {

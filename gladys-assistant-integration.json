@@ -21,8 +21,8 @@
         "fr": "Compte Overkiz 1"
       },
       "description": {
-        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Up to 3 accounts can run side by side — a Somfy hub for your covers and a Cozytouch account for your water heater, for instance. Covers, lights, switches, sensors and water heaters are supported; heating devices are not mapped yet.",
-        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Jusqu'à 3 comptes peuvent fonctionner en parallèle — une box Somfy pour vos volets et un compte Cozytouch pour votre chauffe-eau, par exemple. Les volets, lampes, interrupteurs, capteurs et chauffe-eau sont supportés ; les appareils de chauffage ne le sont pas encore."
+        "en": "Connect with the credentials of your Overkiz-based hub. Pick the server matching your hub, then enter the email and password of your provider account. Up to 3 accounts can run side by side — a Somfy hub for your covers and a Cozytouch account for your water heater, for instance. Covers, lights, switches, sensors, water heaters and Hitachi (Hi Kumo) air conditioners are supported; heating devices are not mapped yet.",
+        "fr": "Connectez-vous avec les identifiants de votre box Overkiz. Choisissez le serveur correspondant à votre box, puis saisissez l'email et le mot de passe de votre compte fournisseur. Jusqu'à 3 comptes peuvent fonctionner en parallèle — une box Somfy pour vos volets et un compte Cozytouch pour votre chauffe-eau, par exemple. Les volets, lampes, interrupteurs, capteurs, chauffe-eau et climatiseurs Hitachi (Hi Kumo) sont supportés ; les appareils de chauffage ne le sont pas encore."
       },
       "links": [
         {

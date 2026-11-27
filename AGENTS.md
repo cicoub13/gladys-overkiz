@@ -78,7 +78,10 @@ are in `CHANGELOG.md`.
   `globalControl` parameters): `globalControl` sets everything at once, so each command backfills
   the rest from the device states. The command carries `expectedStates`, which `account.setValue`
   writes with `updateStates` once Overkiz accepts it, so back-to-back commands (scenes) don't
-  backfill stale values. AC value enums (`AC_MODE`, `AC_FAN_SPEED`, `AC_SWING`) are local, like
+  backfill stale values. `setValue` also queues commands per device, prefers those states over
+  the device states for `PENDING_STATE_TTL_MS` (an older report must not undo them), and puts the
+  previous states back when the execution fails (`Overkiz.execute` `onFailure`). The backfill
+  sends the reported words back as they are, except `autoCooling`/`autoHeating` → `auto`. AC value enums (`AC_MODE`, `AC_FAN_SPEED`, `AC_SWING`) are local, like
   `WATER_HEATER_MODE`.
 - Unmapped appliances: use the `dump_devices` action output (`Device dump: {json}` log lines);
   `makeAtlanticModbuslinkWaterHeater` in `test/helpers.js` is a real captured device.

@@ -337,8 +337,9 @@ export function makeFakeOverkiz({ devices = [], startError = null } = {}) {
     async refreshDevices() {
       return this.devices;
     },
-    async execute(deviceUrl, command, label) {
-      calls.execute.push({ deviceUrl, command, label });
+    /** `onFailure` is kept so a test can fail the execution after it was accepted. */
+    async execute(deviceUrl, command, label, { onFailure } = {}) {
+      calls.execute.push({ deviceUrl, command, label, onFailure });
     },
     getDevice(deviceUrl) {
       return this.devices.find((d) => d.deviceURL === deviceUrl) ?? null;

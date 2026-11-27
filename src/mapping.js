@@ -444,29 +444,31 @@ function hitachiSwingWord({ vertical, horizontal }) {
 }
 
 /**
- * The `globalControl` parameters as the appliance last reported them, in the
- * words it takes back. The fallbacks are Home Assistant's, for a state the
- * appliance does not report (or reports in a word it would not accept).
+ * The `globalControl` parameters as the appliance last reported them, sent
+ * back word for word, like Home Assistant does: rewriting a word it reported
+ * could change a setting nobody touched. The only exception is the automatic
+ * mode, reported with its direction but only taken back as `auto`. The
+ * fallbacks are Home Assistant's, for a state the appliance does not report.
  */
 function hitachiCurrentControl(device) {
-  const word = (stateName) => overkizWord(device.get(stateName));
+  const reported = (stateName, fallback) => device.get(stateName) ?? fallback;
+  const mode = overkizWord(device.get(STATES.HLRRWIFI_MODE_CHANGE));
   const rawTemperature = device.get(STATES.TARGET_TEMPERATURE);
   return {
-    mainOperation: word(STATES.HLRRWIFI_MAIN_OPERATION) === 'off' ? 'off' : 'on',
+    mainOperation: reported(STATES.HLRRWIFI_MAIN_OPERATION, 'on'),
     // `Number(null)` is 0, which would be sent as a setpoint.
     targetTemperature:
       rawTemperature === null || rawTemperature === undefined
         ? Number.NaN
         : Math.round(Number(rawTemperature)),
-    fanSpeed:
-      lookup(HITACHI_FAN_WRITE, lookup(HITACHI_FAN_READ, word(STATES.HLRRWIFI_FAN_SPEED))) ??
-      'auto',
+    fanSpeed: reported(STATES.HLRRWIFI_FAN_SPEED, 'auto'),
     mode:
-      lookup(HITACHI_MODE_WRITE, lookup(HITACHI_MODE_READ, word(STATES.HLRRWIFI_MODE_CHANGE))) ??
-      'auto',
-    swing: hitachiSwingAxes(device) ? word(STATES.HLRRWIFI_SWING) : 'stop',
+      mode === 'autocooling' || mode === 'autoheating'
+        ? 'auto'
+        : reported(STATES.HLRRWIFI_MODE_CHANGE, 'auto'),
+    swing: reported(STATES.HLRRWIFI_SWING, 'stop'),
     // Holiday mode has no Gladys feature: it is only ever sent back as it is.
-    leaveHome: word(STATES.HLRRWIFI_LEAVE_HOME) === 'on' ? 'on' : 'off',
+    leaveHome: reported(STATES.HLRRWIFI_LEAVE_HOME, 'off'),
   };
 }
 
@@ -517,7 +519,7 @@ function buildHitachiAirToAirCommand(device, key, value) {
     if (numeric !== AC_SWING.OFF && numeric !== AC_SWING.SWING) {
       return null;
     }
-    const axes = { ...HITACHI_SWING_AXES[control.swing] };
+    const axes = { ...(hitachiSwingAxes(device) ?? HITACHI_SWING_AXES.stop) };
     axes[key === 'swing_vertical' ? 'vertical' : 'horizontal'] = numeric === AC_SWING.SWING;
     control.swing = hitachiSwingWord(axes);
     changed = { name: STATES.HLRRWIFI_SWING, value: control.swing };

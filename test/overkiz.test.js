@@ -330,6 +330,28 @@ test('execute accepts a single command or an ordered list', async () => {
   );
 });
 
+test('execute reports an execution that fails once accepted', async () => {
+  const executions = [];
+  const client = makeFakeClient();
+  client.execute = async (label, execution) => executions.push(execution);
+  const overkiz = new Overkiz({ createClient: () => client });
+  await overkiz.start(CONFIG);
+  const failures = [];
+
+  await overkiz.execute('io://1/1', { name: 'on', parameters: [] }, 'label', {
+    onFailure: (state) => failures.push(state),
+  });
+  await overkiz.execute('io://1/1', { name: 'on', parameters: [] });
+  executions[0].emit('update', 'IN_PROGRESS');
+  executions[0].emit('update', 'COMPLETED');
+  assert.deepEqual(failures, []);
+  executions[0].emit('update', 'FAILED');
+  executions[0].emit('update', 'TIMED_OUT');
+  assert.deepEqual(failures, ['FAILED', 'TIMED_OUT']);
+  // Without a listener, a failure goes nowhere.
+  executions[1].emit('update', 'FAILED');
+});
+
 test('the account logger is used, and handed to overkiz-client itself', async () => {
   // Three sessions write to one log: a line that does not say which account it
   // belongs to is unusable when a user pastes it in a bug report — and

@@ -135,6 +135,7 @@ export function createHandlers({
       publisher,
       logger: accountLogger,
       scheduleTimer,
+      now,
       onRetry: () => connectAccount(findAccount(accountConfig.id)),
       onLinkChange: () => {
         // Nothing awaits this one — the link changed under us, no handler is

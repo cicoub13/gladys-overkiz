@@ -16,6 +16,10 @@ import { describeOverkizError } from './errors.js';
 // Reconnection backoff, only used for failures that can resolve on their own.
 const RETRY_INITIAL_MS = 60_000;
 const RETRY_MAX_MS = 15 * 60_000;
+// How long the states a command changed win over what the cloud reports: a
+// report captured before the command landed must not undo it. Matches the
+// time `overkiz-client` gives an execution before calling it timed out.
+const PENDING_STATE_TTL_MS = 2 * 60_000;
 
 /**
  * Prefix every message of a logger, so lines coming from three sessions stay
@@ -58,6 +62,7 @@ export function createAccount({
   scheduleTimer,
   onRetry,
   onLinkChange,
+  now = Date.now,
 }) {
   // deviceURL -> { device external_id, entries: [{ key, stateName, invert,
   // watchedStates?, derive?, gladysFeature }] }
@@ -70,6 +75,14 @@ export function createAccount({
   // The wrapper still owns a client after the cloud dropped the link — it is
   // the `disconnect` event, not the client, that tells the session is down.
   let linkUp = false;
+  // deviceURL -> the last command sent to it, settled or not: commands to one
+  // device run one after the other, so each is built from what the previous
+  // one changed.
+  const commandQueues = new Map();
+  // deviceURL -> Map(stateName -> { value, until }): what the commands sent
+  // to a whole-appliance device (Hitachi `globalControl`) changed, preferred
+  // over the device states when the next command fills in the rest.
+  const pendingStates = new Map();
 
   function mapAllDevices(devices) {
     mappedDevices = new Map();
@@ -123,6 +136,86 @@ export function createAccount({
       return null;
     }
     return stateToGladysValue(entry, device.get(entry.stateName));
+  }
+
+  /**
+   * The device as the next command must see it: the states recent commands
+   * changed win over the device states, which a report captured before those
+   * commands landed may have put back.
+   */
+  function withPendingStates(deviceUrl, device) {
+    const pending = pendingStates.get(deviceUrl);
+    if (!pending) {
+      return device;
+    }
+    for (const [stateName, record] of pending) {
+      if (record.until <= now()) {
+        pending.delete(stateName);
+      }
+    }
+    if (pending.size === 0) {
+      pendingStates.delete(deviceUrl);
+      return device;
+    }
+    return Object.create(device, {
+      get: {
+        value: (stateName) =>
+          pending.has(stateName) ? pending.get(stateName).value : device.get(stateName),
+      },
+    });
+  }
+
+  /**
+   * The cloud accepted a command that then failed: the appliance never took
+   * the values it carried. Forget them, and put back the device states the
+   * command overwrote, unless something newer replaced them since.
+   */
+  function forgetFailedCommand(deviceUrl, device, records, previousStates) {
+    const pending = pendingStates.get(deviceUrl);
+    const restored = [];
+    records.forEach((record, index) => {
+      const { name, value } = previousStates[index];
+      if (pending?.get(name) !== record) {
+        return;
+      }
+      pending.delete(name);
+      if (device.get(name) === record.value && value !== null && value !== undefined) {
+        restored.push({ name, value });
+      }
+    });
+    if (restored.length > 0) {
+      device.updateStates?.(restored);
+    }
+  }
+
+  async function sendCommand(deviceUrl, device, feature, entry, value) {
+    const overkizDevice = overkiz.getDevice(deviceUrl);
+    const current = overkizDevice && withPendingStates(deviceUrl, overkizDevice);
+    const command = current && buildCommand(current, entry, value);
+    if (!command || (Array.isArray(command) && command.length === 0)) {
+      throw new Error(`No Overkiz command for ${feature.external_id} = ${value}`);
+    }
+    const expectedStates = command.expectedStates ?? [];
+    const previousStates = expectedStates.map(({ name }) => ({ name, value: current.get(name) }));
+    const records = expectedStates.map(({ value: expected }) => ({ value: expected }));
+    await overkiz.execute(deviceUrl, command, `Gladys - ${device.name ?? deviceUrl}`, {
+      onFailure: () => forgetFailedCommand(deviceUrl, overkizDevice, records, previousStates),
+    });
+
+    // A command that rewrites the whole appliance (Hitachi `globalControl`)
+    // fills what it does not change from the device states. Record what it
+    // did change right away, so that the next command, sent before the cloud
+    // reports this one, does not undo it. `updateStates` is the client's own
+    // entry point for new states: it also emits them, as an event would.
+    if (expectedStates.length > 0) {
+      const pending = pendingStates.get(deviceUrl) ?? new Map();
+      pendingStates.set(deviceUrl, pending);
+      expectedStates.forEach(({ name }, index) => {
+        records[index].until = now() + PENDING_STATE_TTL_MS;
+        pending.set(name, records[index]);
+      });
+      overkizDevice.updateStates?.(expectedStates);
+    }
   }
 
   function scheduleRetry() {
@@ -342,20 +435,18 @@ export function createAccount({
       if (!entry) {
         throw new Error(`Unknown feature ${feature.external_id}`);
       }
-      const overkizDevice = overkiz.getDevice(deviceUrl);
-      const command = overkizDevice && buildCommand(overkizDevice, entry, value);
-      if (!command || (Array.isArray(command) && command.length === 0)) {
-        throw new Error(`No Overkiz command for ${feature.external_id} = ${value}`);
-      }
-      await overkiz.execute(deviceUrl, command, `Gladys - ${device.name ?? deviceUrl}`);
-
-      // A command that rewrites the whole appliance (Hitachi `globalControl`)
-      // fills what it does not change from the device states. Record what it
-      // did change right away, so that the next command, sent before the cloud
-      // reports this one, does not undo it. `updateStates` is the client's own
-      // entry point for new states: it also emits them, as an event would.
-      if (command.expectedStates?.length > 0) {
-        overkizDevice.updateStates?.(command.expectedStates);
+      // Gladys sends commands without waiting for the previous one (the
+      // actions of a scene block run in parallel): queue them per device.
+      const previous = commandQueues.get(deviceUrl) ?? Promise.resolve();
+      const sent = previous.then(() => sendCommand(deviceUrl, device, feature, entry, value));
+      const settled = sent.catch(() => {});
+      commandQueues.set(deviceUrl, settled);
+      try {
+        await sent;
+      } finally {
+        if (commandQueues.get(deviceUrl) === settled) {
+          commandQueues.delete(deviceUrl);
+        }
       }
 
       // Optimistic echo: the event poller only confirms the move up to a polling
