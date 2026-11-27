@@ -12,12 +12,14 @@ Contrôlez vos appareils Overkiz depuis Gladys Assistant : les box Somfy TaHoma,
 - **Capteurs** : température, humidité, luminosité, contact (ouverture), présence (mouvement), fumée, fuite d'eau, CO2 et puissance/consommation électrique.
 - **Batterie** : sur tous les appareils qui la remontent, volets et lampes compris. Les appareils dotés d'une jauge publient un niveau en pourcentage ; ceux qui ne rapportent qu'un statut — la majorité des capteurs IO et RTS — publient à la place un indicateur « batterie faible ».
 - **Chauffe-eau** : mode de fonctionnement (éco, manuel, auto, absence), boost, température de consigne, eau chaude restante (en litres soutirables à 40 °C), chauffe en cours et température de l'eau.
+- **Climatiseurs Hitachi** (Hi Kumo) : marche/arrêt, mode (auto, froid, chaud, déshumidification, ventilation), température de consigne, vitesse de ventilation, oscillation verticale et horizontale, et température de la pièce.
 
 Les états sont rafraîchis en quasi temps réel via l'API d'événements Overkiz : un volet actionné depuis une télécommande physique est reflété dans Gladys en quelques secondes.
 
 ### Ce qui n'est pas encore supporté
 
-- **Chauffage** : radiateurs, planchers chauffants et pompes à chaleur (`HeatingSystem`) ne sont pas encore convertis en appareils Gladys. Les box **Atlantic Cozytouch**, **Thermor**, **Sauter** et **Hitachi Hi Kumo** se connectent bien et leurs chauffe-eau sont supportés, mais leurs appareils de chauffage n'apparaîtront pas encore dans la découverte.
+- **Chauffage** : radiateurs, planchers chauffants et pompes à chaleur (`HeatingSystem`) ne sont pas encore convertis en appareils Gladys. Les box **Atlantic Cozytouch**, **Thermor**, **Sauter** et **Hitachi Hi Kumo** se connectent bien et leurs chauffe-eau sont supportés, mais leurs appareils de chauffage n'apparaîtront pas encore dans la découverte. Les climatiseurs Hitachi font exception.
+- **Climatiseurs Hitachi** : le mode vacances est conservé tel quel mais ne peut pas être modifié depuis Gladys. Les appareils qu'Overkiz pilote via le protocole `ovp` au lieu de `hlrrwifi` ne sont pas encore convertis : utilisez l'action **Lister les appareils bruts** et partagez sa sortie si le vôtre n'apparaît pas.
 - **Les chauffe-eau autres qu'Atlantic / Thermor / Sauter** sont convertis pour ce qu'ils rapportent, mais leurs commandes spécifiques (Hitachi Hi Kumo notamment) ne sont pas encore câblées : les capteurs fonctionneront, certaines commandes manqueront.
 - **Serrures, alarmes et ventilation** (`DoorLock`, `Alarm`, `AirFlow`).
 - Sur les prises et modules mesurant la consommation, Overkiz publie souvent la puissance sur un **sous-appareil** distinct : il apparaît alors comme un appareil séparé dans la découverte, portant le même nom que son parent.

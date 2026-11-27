@@ -16,6 +16,8 @@ import {
   makeFakeClock,
   makeOverkizDevice,
   makeWaterHeater,
+  makeHitachiAirToAirHeatPump,
+  makeHitachiWifiBridge,
 } from './helpers.js';
 
 const logger = createLogger({ level: 'silent' });
@@ -794,6 +796,142 @@ test('a boost command is refused when the appliance cannot boost', async () => {
       ),
     /No Overkiz command/,
   );
+});
+
+// --- Hitachi air conditioners --------------------------------------------------
+
+const HITACHI_ID = 'ext:overkiz:overkiz:hlrrwifi-0000-1111-2222-1';
+
+test('a Hitachi air conditioner is discovered without its bridge, with its states', async () => {
+  const { gladys, handlers } = setup({
+    devices: [makeHitachiWifiBridge(), makeHitachiAirToAirHeatPump()],
+  });
+
+  await handlers.gladysConnected();
+
+  // Accepted by Gladys: the SDK fake refuses an unknown category, type or unit.
+  const discovered = gladys.fake.discoveredDevices;
+  assert.deepEqual(
+    discovered.map((d) => d.external_id),
+    [HITACHI_ID],
+  );
+  assert.equal(discovered[0].name, 'Living Room');
+  assert.equal(discovered[0].should_poll, false);
+  const published = Object.fromEntries(
+    gladys.fake.states.map((s) => [s.device_feature_external_id, s.state]),
+  );
+  assert.deepEqual(published, {
+    [`${HITACHI_ID}:binary`]: 0,
+    [`${HITACHI_ID}:mode`]: 0,
+    [`${HITACHI_ID}:target_temperature`]: 25,
+    [`${HITACHI_ID}:fan_speed`]: 0,
+    [`${HITACHI_ID}:swing_vertical`]: 0,
+    [`${HITACHI_ID}:swing_horizontal`]: 0,
+    [`${HITACHI_ID}:temperature`]: 12,
+  });
+});
+
+test('a Hitachi scene sent back to back does not undo its own first steps', async () => {
+  // A scene turning the unit on, then picking a mode, then a setpoint, runs
+  // its actions without waiting for the cloud to report each one: every
+  // `globalControl` after the first must still carry what the earlier ones set.
+  const unit = makeHitachiAirToAirHeatPump();
+  const { gladys, overkiz, handlers } = setup({ devices: [unit] });
+  await handlers.gladysConnected();
+  forgetReceived(gladys);
+
+  const device = { external_id: HITACHI_ID, name: 'Living Room' };
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:binary` }, 1);
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:mode` }, 1);
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:target_temperature` }, 22);
+
+  assert.deepEqual(
+    overkiz.calls.execute.map((call) => call.command.parameters),
+    [
+      ['on', 25, 'auto', 'auto', 'stop', 'off'],
+      ['on', 25, 'auto', 'cooling', 'stop', 'off'],
+      ['on', 22, 'auto', 'cooling', 'stop', 'off'],
+    ],
+  );
+  assert.deepEqual(gladys.fake.states, [
+    { device_feature_external_id: `${HITACHI_ID}:binary`, state: 1 },
+    { device_feature_external_id: `${HITACHI_ID}:mode`, state: 1 },
+    { device_feature_external_id: `${HITACHI_ID}:target_temperature`, state: 22 },
+  ]);
+});
+
+test('Hitachi commands sent at the same time are applied one after the other', async () => {
+  // Gladys runs the actions of a scene block in parallel, and the SDK handles
+  // each command without waiting for the previous one.
+  const unit = makeHitachiAirToAirHeatPump();
+  const { overkiz, handlers } = setup({ devices: [unit] });
+  await handlers.gladysConnected();
+
+  const device = { external_id: HITACHI_ID, name: 'Living Room' };
+  await Promise.all([
+    handlers.setValue(device, { external_id: `${HITACHI_ID}:binary` }, 1),
+    handlers.setValue(device, { external_id: `${HITACHI_ID}:mode` }, 1),
+    handlers.setValue(device, { external_id: `${HITACHI_ID}:target_temperature` }, 22),
+  ]);
+
+  assert.deepEqual(
+    overkiz.calls.execute.map((call) => call.command.parameters),
+    [
+      ['on', 25, 'auto', 'auto', 'stop', 'off'],
+      ['on', 25, 'auto', 'cooling', 'stop', 'off'],
+      ['on', 22, 'auto', 'cooling', 'stop', 'off'],
+    ],
+  );
+});
+
+test('a Hitachi report older than a command does not undo it', async () => {
+  const unit = makeHitachiAirToAirHeatPump();
+  const { overkiz, handlers, clock } = setup({ devices: [unit] });
+  await handlers.gladysConnected();
+  const device = { external_id: HITACHI_ID, name: 'Living Room' };
+
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:mode` }, 1);
+  // The cloud reports the unit as it was before the mode change.
+  unit.updateStates([{ name: 'hlrrwifi:ModeChangeState', value: 'autoCooling' }]);
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:target_temperature` }, 22);
+  assert.equal(overkiz.calls.execute[1].command.parameters[3], 'cooling');
+
+  // Long after the command, a report is the unit's own word: a remote may
+  // well have changed the mode since.
+  await clock.sleep(2 * 60_000);
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:target_temperature` }, 23);
+  assert.equal(overkiz.calls.execute[2].command.parameters[3], 'auto');
+});
+
+test('a Hitachi command that fails once accepted is not sent again', async () => {
+  const unit = makeHitachiAirToAirHeatPump();
+  const { overkiz, handlers } = setup({ devices: [unit] });
+  await handlers.gladysConnected();
+  const device = { external_id: HITACHI_ID, name: 'Living Room' };
+
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:target_temperature` }, 32);
+  assert.equal(unit.get('core:TargetTemperatureState'), 32);
+  // The unit refuses it: the cloud reports no state change at all.
+  overkiz.calls.execute[0].onFailure('FAILED');
+
+  assert.equal(unit.get('core:TargetTemperatureState'), 25);
+  await handlers.setValue(device, { external_id: `${HITACHI_ID}:binary` }, 0);
+  assert.equal(overkiz.calls.execute[1].command.parameters[1], 25);
+});
+
+test('a refused Hitachi command records nothing on the device', async (t) => {
+  const unit = makeHitachiAirToAirHeatPump();
+  const { overkiz, handlers } = setup({ devices: [unit] });
+  await handlers.gladysConnected();
+  t.mock.method(overkiz, 'execute', async () => {
+    throw new Error('EXEC_QUEUE_FULL');
+  });
+
+  await assert.rejects(() =>
+    handlers.setValue({ external_id: HITACHI_ID }, { external_id: `${HITACHI_ID}:binary` }, 1),
+  );
+
+  assert.equal(unit.get('hlrrwifi:MainOperationState'), 'off');
 });
 
 // --- The dump action ---------------------------------------------------------

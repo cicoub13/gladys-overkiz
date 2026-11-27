@@ -8,7 +8,13 @@
 // -----------------------------------------------------------------------------
 
 import https from 'node:https';
-import { Client as OverkizClient, Action, Command, Execution } from 'overkiz-client';
+import {
+  Client as OverkizClient,
+  Action,
+  Command,
+  Execution,
+  ExecutionState,
+} from 'overkiz-client';
 import { createLogger } from '@gladysassistant/integration-sdk';
 
 const defaultLogger = createLogger({ name: 'overkiz' });
@@ -219,8 +225,11 @@ export class Overkiz {
    * A list travels as a SINGLE action, which is what preserves its order: water
    * heaters need `setXxx` then `refreshXxx` to report the result of a write, and
    * a mode change needs its reset command to land first.
+   *
+   * `onFailure` is called if the execution, once accepted, ends up failing or
+   * timing out: the cloud then reports no state change at all.
    */
-  async execute(deviceUrl, command, label = 'Gladys command') {
+  async execute(deviceUrl, command, label = 'Gladys command', { onFailure } = {}) {
     if (!this.client) {
       throw new Error('Overkiz client is not connected');
     }
@@ -230,6 +239,13 @@ export class Overkiz {
       commands.map((c) => new Command(c.name, c.parameters)),
     );
     const execution = new Execution(label, action);
+    if (onFailure) {
+      execution.on('update', (state) => {
+        if (state === ExecutionState.FAILED || state === ExecutionState.TIMED_OUT) {
+          onFailure(state);
+        }
+      });
+    }
     await this.client.execute('apply', execution);
   }
 }
