@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-27
+
 ### Added
 
 - **Hitachi air conditioners (Hi Kumo).** They now show up in discovery as
